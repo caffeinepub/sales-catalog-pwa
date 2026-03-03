@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== FONT FACES ===== */
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/assets/fonts/PlusJakartaSans[wght].woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Sora";
+  src: url("/assets/fonts/Sora[wght].woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* Sales Catalog — Clean & Professional */
+    /* Primary: Blue #2563eb → OKLCH(0.546 0.215 264) */
+    /* Surface: crisp white with subtle warmth */
+
+    --background: 0.98 0.003 247;
+    --foreground: 0.13 0.02 260;
+
+    --card: 1 0 0;
+    --card-foreground: 0.13 0.02 260;
+
+    --popover: 1 0 0;
+    --popover-foreground: 0.13 0.02 260;
+
+    /* Primary blue: #2563eb */
+    --primary: 0.546 0.215 264;
+    --primary-foreground: 1 0 0;
+
+    --secondary: 0.94 0.02 247;
+    --secondary-foreground: 0.25 0.05 264;
+
+    --muted: 0.945 0.01 247;
+    --muted-foreground: 0.5 0.03 260;
+
+    --accent: 0.93 0.04 247;
+    --accent-foreground: 0.25 0.05 264;
+
+    /* Destructive: #dc2626 */
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 1 0 0;
+
+    /* Success: #16a34a */
+    --success: 0.527 0.177 145;
+    --success-foreground: 1 0 0;
+
+    /* Warning: #d97706 */
+    --warning: 0.68 0.18 55;
+    --warning-foreground: 1 0 0;
+
+    --border: 0.9 0.01 247;
+    --input: 0.9 0.01 247;
+    --ring: 0.546 0.215 264;
+
+    --chart-1: 0.546 0.215 264;
+    --chart-2: 0.527 0.177 145;
+    --chart-3: 0.68 0.18 55;
+    --chart-4: 0.577 0.245 27.325;
+    --chart-5: 0.65 0.2 310;
+
+    --sidebar: 0.97 0.01 247;
+    --sidebar-foreground: 0.13 0.02 260;
+    --sidebar-primary: 0.546 0.215 264;
+    --sidebar-primary-foreground: 1 0 0;
+    --sidebar-accent: 0.93 0.04 247;
+    --sidebar-accent-foreground: 0.25 0.05 264;
+    --sidebar-border: 0.9 0.01 247;
+    --sidebar-ring: 0.546 0.215 264;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", -apple-system, "PingFang SC",
+      "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+}
+
+@layer utilities {
+  /* Safe area insets for mobile */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .bottom-safe {
+    bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Touch action */
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+
+  /* Status badge colors */
+  .badge-success {
+    @apply bg-green-100 text-green-800 border-green-200;
+  }
+  .badge-warning {
+    @apply bg-amber-100 text-amber-800 border-amber-200;
+  }
+  .badge-error {
+    @apply bg-red-100 text-red-800 border-red-200;
+  }
+  .badge-info {
+    @apply bg-blue-100 text-blue-800 border-blue-200;
+  }
+  .badge-muted {
+    @apply bg-gray-100 text-gray-600 border-gray-200;
+  }
+}
