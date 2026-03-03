@@ -27,6 +27,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft,
+  FolderOpen,
   ImageIcon,
   Loader2,
   Package,
@@ -41,6 +42,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
+import { uploadBytesToBlob } from "../lib/blobUpload";
 import {
   getAllExtendedProducts,
   getProductsFromCache,
@@ -48,7 +50,7 @@ import {
   saveProductsToCache,
 } from "../lib/db";
 import { generateTemplate, parseProductsExcel } from "../lib/excel";
-import { resizeImageToMaxWidth, uploadImageToBlob } from "../lib/imageUpload";
+import { resizeImageToMaxWidth } from "../lib/imageUpload";
 import { SAMPLE_PRODUCTS } from "../lib/sampleData";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
@@ -70,7 +72,7 @@ interface ProductForm {
   promotions: string;
   price: string;
   stockStatus: string;
-  imageUrl: string;
+  imageFileName: string;
 }
 
 const emptyForm: ProductForm = {
@@ -89,7 +91,7 @@ const emptyForm: ProductForm = {
   promotions: "",
   price: "",
   stockStatus: "in_stock",
-  imageUrl: "",
+  imageFileName: "",
 };
 
 export function ProductManagement() {
@@ -112,6 +114,10 @@ export function ProductManagement() {
   const [imageUploadProgress, setImageUploadProgress] = useState(0);
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Folder upload state
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [folderUploading, setFolderUploading] = useState(false);
 
   // Bulk upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -145,6 +151,8 @@ export function ProductManagement() {
             uom: "",
             stock: 0,
             promotions: "",
+            imageFileName: "",
+            imageBlobUrl: "",
           }));
           setProducts(promoted);
         } else {
@@ -199,27 +207,37 @@ export function ProductManagement() {
       promotions: product.promotions ?? "",
       price: String(product.price),
       stockStatus: product.stockStatus,
-      imageUrl: product.imageUrl,
+      imageFileName: product.imageFileName ?? "",
     });
-    resetImageState();
+    // Show existing blob URL as preview if available
+    if (product.imageBlobUrl) {
+      setImagePreviewUrl(product.imageBlobUrl);
+    } else {
+      resetImageState();
+    }
     setShowAddEdit(true);
   };
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (imagePreviewUrl) {
+    // Revoke previous object URL only if it was created by us (not a blob URL from backend)
+    if (imagePreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(imagePreviewUrl);
     }
     setImageFile(file);
     const previewUrl = URL.createObjectURL(file);
     setImagePreviewUrl(previewUrl);
     setImageUploadProgress(0);
+    // Auto-fill imageFileName if empty
+    if (!form.imageFileName) {
+      setForm((f) => ({ ...f, imageFileName: file.name }));
+    }
   };
 
   const handleClearImage = () => {
     setImageFile(null);
-    if (imagePreviewUrl) {
+    if (imagePreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(imagePreviewUrl);
     }
     setImagePreviewUrl("");
@@ -233,13 +251,20 @@ export function ProductManagement() {
     if (!form.sku || !form.nameCnTraditional) return;
     setSaving(true);
     try {
-      let finalImageUrl = form.imageUrl;
+      const now = BigInt(Date.now());
+      let imageBlobUrl = editingProduct?.imageBlobUrl ?? "";
 
+      // If a new image file was selected, upload it
       if (imageFile) {
         setUploadingImage(true);
         try {
-          const bytes = await resizeImageToMaxWidth(imageFile, 1024);
-          finalImageUrl = await uploadImageToBlob(bytes, undefined, (pct) => {
+          const rawBytes = await resizeImageToMaxWidth(imageFile, 1024);
+          const bytes =
+            rawBytes.buffer instanceof ArrayBuffer
+              ? new Uint8Array(rawBytes.buffer as ArrayBuffer)
+              : new Uint8Array(rawBytes);
+          // Upload directly to blob storage using our working upload pipeline
+          imageBlobUrl = await uploadBytesToBlob(bytes, undefined, (pct) => {
             setImageUploadProgress(pct);
           });
           toast.success(t("imageUploaded", lang));
@@ -254,7 +279,6 @@ export function ProductManagement() {
         }
       }
 
-      const now = BigInt(Date.now());
       const product: ExtendedProduct = {
         id: editingProduct?.id || crypto.randomUUID(),
         sku: form.sku,
@@ -272,14 +296,15 @@ export function ProductManagement() {
         promotions: form.promotions,
         price: Number(form.price),
         stockStatus: form.stockStatus,
-        imageUrl: finalImageUrl,
+        imageFileName: form.imageFileName,
+        imageBlobUrl: imageBlobUrl,
         createdAt: editingProduct?.createdAt ?? now,
         updatedAt: now,
       };
 
       if (isOnline) {
         const backendActor = await getBackendActor();
-        // Save base fields to backend
+        // Save base fields to backend (no imageBlob here — handled separately via updateProductImage)
         await backendActor.upsertProductBySku({
           id: product.id,
           sku: product.sku,
@@ -288,7 +313,7 @@ export function ProductManagement() {
           category: product.category,
           price: product.price,
           stockStatus: product.stockStatus,
-          imageUrl: product.imageUrl,
+          imageBlob: undefined,
           createdAt: product.createdAt,
           updatedAt: product.updatedAt,
         });
@@ -306,39 +331,23 @@ export function ProductManagement() {
       // Also update base products_cache for backward compat
       const baseCached = await getProductsFromCache();
       const baseIdx = baseCached.findIndex((p) => p.sku === product.sku);
+      const baseProductEntry = {
+        id: product.id,
+        sku: product.sku,
+        nameCnSimplified: product.nameCnSimplified,
+        nameCnTraditional: product.nameCnTraditional,
+        category: product.category,
+        price: product.price,
+        stockStatus: product.stockStatus,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      };
       const baseUpdated =
         baseIdx >= 0
           ? baseCached.map((p) =>
-              p.sku === product.sku
-                ? {
-                    id: product.id,
-                    sku: product.sku,
-                    nameCnSimplified: product.nameCnSimplified,
-                    nameCnTraditional: product.nameCnTraditional,
-                    category: product.category,
-                    price: product.price,
-                    stockStatus: product.stockStatus,
-                    imageUrl: product.imageUrl,
-                    createdAt: product.createdAt,
-                    updatedAt: product.updatedAt,
-                  }
-                : p,
+              p.sku === product.sku ? baseProductEntry : p,
             )
-          : [
-              ...baseCached,
-              {
-                id: product.id,
-                sku: product.sku,
-                nameCnSimplified: product.nameCnSimplified,
-                nameCnTraditional: product.nameCnTraditional,
-                category: product.category,
-                price: product.price,
-                stockStatus: product.stockStatus,
-                imageUrl: product.imageUrl,
-                createdAt: product.createdAt,
-                updatedAt: product.updatedAt,
-              },
-            ];
+          : [...baseCached, baseProductEntry];
       await saveProductsToCache(baseUpdated);
 
       setProducts(updated);
@@ -363,6 +372,91 @@ export function ProductManagement() {
     toast.success(t("delete", lang));
   };
 
+  /**
+   * Upload Image Folder: match filenames to products and store blobs.
+   */
+  const handleFolderUpload = async (files: FileList) => {
+    if (files.length === 0) return;
+    setFolderUploading(true);
+
+    try {
+      const allProducts = await getAllExtendedProducts();
+      let matchedFiles = 0;
+      let updatedProducts = 0;
+      const updatedMap = new Map<string, ExtendedProduct>();
+
+      for (const file of Array.from(files)) {
+        const fileName = file.name.toLowerCase();
+        // Find all products whose imageFileName matches this file
+        const matchingProducts = allProducts.filter(
+          (p) => p.imageFileName?.toLowerCase() === fileName,
+        );
+
+        if (matchingProducts.length > 0) {
+          matchedFiles++;
+          try {
+            const rawBytes = await resizeImageToMaxWidth(file, 1024);
+            const safeBytes =
+              rawBytes.buffer instanceof ArrayBuffer
+                ? new Uint8Array(rawBytes.buffer as ArrayBuffer)
+                : new Uint8Array(rawBytes);
+            if (isOnline) {
+              // Upload directly to blob storage using our working pipeline
+              const blobUrl = await uploadBytesToBlob(safeBytes);
+              for (const product of matchingProducts) {
+                const updatedProduct: ExtendedProduct = {
+                  ...product,
+                  imageBlobUrl: blobUrl,
+                  updatedAt: BigInt(Date.now()),
+                };
+                updatedMap.set(product.id, updatedProduct);
+                updatedProducts++;
+              }
+            } else {
+              // Offline: just create a local object URL for display
+              const localUrl = URL.createObjectURL(file);
+              for (const product of matchingProducts) {
+                const updatedProduct: ExtendedProduct = {
+                  ...product,
+                  imageBlobUrl: localUrl,
+                  updatedAt: BigInt(Date.now()),
+                };
+                updatedMap.set(product.id, updatedProduct);
+                updatedProducts++;
+              }
+            }
+          } catch {
+            // Continue processing other files even if one fails
+          }
+        }
+      }
+
+      if (updatedMap.size > 0) {
+        // Merge updates back into full product list
+        const finalProducts = allProducts.map((p) =>
+          updatedMap.has(p.id) ? (updatedMap.get(p.id) as ExtendedProduct) : p,
+        );
+        await saveAllExtendedProducts(finalProducts);
+        setProducts(finalProducts);
+        toast.success(
+          `Successfully matched ${matchedFiles} images to ${updatedProducts} products.`,
+        );
+      } else {
+        toast.warning(
+          "No images matched any products. Check that Image_FileName values match your file names.",
+        );
+      }
+    } catch {
+      toast.error(t("loadError", lang));
+    } finally {
+      setFolderUploading(false);
+      // Reset folder input
+      if (folderInputRef.current) {
+        folderInputRef.current.value = "";
+      }
+    }
+  };
+
   const handleBulkUpload = async () => {
     if (!uploadFile) return;
     setUploading(true);
@@ -375,6 +469,7 @@ export function ProductManagement() {
       let updated = 0;
       let errors = 0;
       const existing = await getAllExtendedProducts();
+      const updatedList: ExtendedProduct[] = [...existing];
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -387,19 +482,21 @@ export function ProductManagement() {
             sku: row.sku,
             nameCnSimplified: "",
             nameCnTraditional: row.nameCnTraditional,
-            nameEn: existingProduct?.nameEn ?? "",
-            category: row.category,
-            categoryId: existingProduct?.categoryId ?? "",
-            brand: existingProduct?.brand ?? "",
-            size: existingProduct?.size ?? "",
-            bbd: existingProduct?.bbd ?? "",
-            vat: existingProduct?.vat ?? 0,
-            uom: existingProduct?.uom ?? "",
-            stock: existingProduct?.stock ?? 0,
-            promotions: existingProduct?.promotions ?? "",
+            nameEn: row.nameEn || existingProduct?.nameEn || "",
+            category: row.category || existingProduct?.category || "",
+            categoryId: row.categoryId || existingProduct?.categoryId || "",
+            brand: row.brand || existingProduct?.brand || "",
+            size: row.size || existingProduct?.size || "",
+            bbd: row.bbd || existingProduct?.bbd || "",
+            vat: row.vat ?? existingProduct?.vat ?? 0,
+            uom: row.uom || existingProduct?.uom || "",
+            stock: row.stock ?? existingProduct?.stock ?? 0,
+            promotions: row.promotions ?? existingProduct?.promotions ?? "",
             price: row.price,
             stockStatus: row.stockStatus,
-            imageUrl: row.imageUrl,
+            imageFileName:
+              row.imageFileName || existingProduct?.imageFileName || "",
+            imageBlobUrl: existingProduct?.imageBlobUrl ?? "",
             createdAt: existingProduct?.createdAt ?? now,
             updatedAt: now,
           };
@@ -413,14 +510,17 @@ export function ProductManagement() {
               category: product.category,
               price: product.price,
               stockStatus: product.stockStatus,
-              imageUrl: product.imageUrl,
+              imageBlob: undefined,
               createdAt: product.createdAt,
               updatedAt: product.updatedAt,
             });
           }
-          if (existingProduct) {
+          const idx = updatedList.findIndex((p) => p.sku === product.sku);
+          if (idx >= 0) {
+            updatedList[idx] = product;
             updated++;
           } else {
+            updatedList.push(product);
             created++;
           }
         } catch {
@@ -428,6 +528,7 @@ export function ProductManagement() {
         }
       }
 
+      await saveAllExtendedProducts(updatedList);
       await loadProducts();
       setUploadResults({ created, updated, errors });
     } catch {
@@ -452,6 +553,36 @@ export function ProductManagement() {
           {t("productManagement", lang)}
         </h1>
         <div className="flex gap-2">
+          {/* Hidden folder/multi-file input */}
+          <input
+            ref={folderInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) {
+                handleFolderUpload(e.target.files);
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => folderInputRef.current?.click()}
+            disabled={folderUploading}
+            data-ocid="product.folder_upload.upload_button"
+            className="gap-1.5 h-9"
+          >
+            {folderUploading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FolderOpen className="w-4 h-4" />
+            )}
+            <span className="hidden sm:inline">
+              {folderUploading ? t("processing", lang) : "Upload Image Folder"}
+            </span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -517,6 +648,9 @@ export function ProductManagement() {
                     <TableHead className="text-xs font-semibold hidden lg:table-cell">
                       {t("stockStatus", lang)}
                     </TableHead>
+                    <TableHead className="text-xs font-semibold hidden xl:table-cell">
+                      Image_FileName
+                    </TableHead>
                     <TableHead className="text-xs font-semibold text-right">
                       {t("actions", lang)}
                     </TableHead>
@@ -551,7 +685,7 @@ export function ProductManagement() {
                         {product.stock ?? 0}
                       </TableCell>
                       <TableCell className="text-right text-sm font-semibold">
-                        ¥{product.price}
+                        £{product.price}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
                         <span
@@ -569,6 +703,19 @@ export function ProductManagement() {
                               ? t("lowStock", lang)
                               : t("outOfStock", lang)}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground hidden xl:table-cell max-w-[120px]">
+                        <span
+                          className="truncate block"
+                          title={product.imageFileName}
+                        >
+                          {product.imageFileName || "—"}
+                        </span>
+                        {product.imageBlobUrl && (
+                          <span className="text-green-600 text-[10px]">
+                            ✓ Image
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -810,11 +957,11 @@ export function ProductManagement() {
               />
             </div>
 
-            {/* Image Upload Section */}
+            {/* Image Section */}
             <div className="space-y-2">
               <Label className="text-sm">{t("uploadImage", lang)}</Label>
 
-              {/* Hidden file input */}
+              {/* Hidden single file input */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -839,14 +986,16 @@ export function ProductManagement() {
                       alt="Preview"
                       className="w-full h-40 object-cover rounded-xl"
                     />
-                    <button
-                      type="button"
-                      onClick={handleClearImage}
-                      className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
-                      aria-label="Remove image"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    {imageFile && (
+                      <button
+                        type="button"
+                        onClick={handleClearImage}
+                        className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+                        aria-label="Remove image"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <button
@@ -893,19 +1042,21 @@ export function ProductManagement() {
                 </div>
               )}
 
-              {/* Manual URL input fallback */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  {t("imageUrl", lang)}
-                </Label>
+              {/* Image_FileName text field */}
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Image_FileName</Label>
                 <Input
-                  value={form.imageUrl}
+                  data-ocid="product.image_filename.input"
+                  value={form.imageFileName}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, imageUrl: e.target.value }))
+                    setForm((f) => ({ ...f, imageFileName: e.target.value }))
                   }
-                  placeholder="https://..."
-                  className="h-8 text-xs"
+                  placeholder="e.g. product-001.jpg"
+                  className="text-sm"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Used by "Upload Image Folder" to match images to products.
+                </p>
               </div>
             </div>
           </div>

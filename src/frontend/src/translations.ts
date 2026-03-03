@@ -535,6 +535,40 @@ export const translations = {
     english: "Sub-Category",
   },
 
+  // Password change
+  changePassword: {
+    traditional: "更改密碼",
+    english: "Change Password",
+  },
+  oldPassword: {
+    traditional: "當前密碼",
+    english: "Current Password",
+  },
+  newPassword: {
+    traditional: "新密碼",
+    english: "New Password",
+  },
+  confirmPassword: {
+    traditional: "確認新密碼",
+    english: "Confirm New Password",
+  },
+  passwordMismatch: {
+    traditional: "新密碼與確認密碼不一致",
+    english: "New passwords do not match",
+  },
+  passwordChanged: {
+    traditional: "密碼已更改",
+    english: "Password updated successfully",
+  },
+  passwordWrong: {
+    traditional: "當前密碼錯誤",
+    english: "Current password is incorrect",
+  },
+  passwordTooShort: {
+    traditional: "密碼至少需要6位",
+    english: "Password must be at least 6 characters",
+  },
+
   // Misc
   noData: {
     traditional: "暫無數據",
@@ -559,6 +593,28 @@ export const translations = {
   syncError: {
     traditional: "同步失敗",
     english: "Sync failed",
+  },
+
+  // First login / force password change
+  setYourPassword: {
+    traditional: "設置您的密碼",
+    english: "Set Your Password",
+  },
+  setPasswordDesc: {
+    traditional: "這是您第一次登錄，請設置新密碼",
+    english: "This is your first login. Please set a new password.",
+  },
+  mustChangePasswordTitle: {
+    traditional: "首次登錄",
+    english: "First Login",
+  },
+  changePasswordProfile: {
+    traditional: "更改密碼",
+    english: "Change Password",
+  },
+  initialPasswordNote: {
+    traditional: "初始密碼：",
+    english: "Initial password: ",
   },
 
   // Image upload

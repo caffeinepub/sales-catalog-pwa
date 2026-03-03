@@ -6,6 +6,12 @@ import Float "mo:core/Float";
 import Runtime "mo:core/Runtime";
 import Iter "mo:core/Iter";
 import Array "mo:core/Array";
+import Time "mo:core/Time";
+import Storage "blob-storage/Storage";
+import MixinStorage "blob-storage/Mixin";
+
+
+// Use the migration module for upgrades.
 
 actor {
   // Types
@@ -27,7 +33,7 @@ actor {
     category : Text;
     price : Float;
     stockStatus : Text;
-    imageUrl : Text;
+    imageBlob : ?Storage.ExternalBlob;
     createdAt : Int;
     updatedAt : Int;
   };
@@ -81,13 +87,92 @@ actor {
     };
   };
 
+  // Data Stores
   let users = Map.empty<Text, UserProfile>();
   let products = Map.empty<Text, Product>();
   let customers = Map.empty<Text, Customer>();
   let orders = Map.empty<Text, Order>();
   let orderItems = Map.empty<Text, OrderItem>();
 
-  // User Profile Management
+  include MixinStorage();
+
+  // Product Management
+  public shared ({ caller }) func createProduct(
+    id : Text,
+    sku : Text,
+    nameCnSimplified : Text,
+    nameCnTraditional : Text,
+    category : Text,
+    price : Float,
+    stockStatus : Text,
+    imageBlob : ?Storage.ExternalBlob
+  ) : async () {
+    let product : Product = {
+      id;
+      sku;
+      nameCnSimplified;
+      nameCnTraditional;
+      category;
+      price;
+      stockStatus;
+      imageBlob;
+      createdAt = Time.now();
+      updatedAt = Time.now();
+    };
+    products.add(sku, product);
+  };
+
+  public shared ({ caller }) func updateProductImage(sku : Text, imageBlob : Storage.ExternalBlob) : async () {
+    switch (products.get(sku)) {
+      case (null) { Runtime.trap("Product does not exist") };
+      case (?product) {
+        let updatedProduct = {
+          product with
+          imageBlob = ?imageBlob;
+          updatedAt = Time.now();
+        };
+        products.add(sku, updatedProduct);
+      };
+    };
+  };
+
+  public query ({ caller }) func getProductImage(sku : Text) : async ?Storage.ExternalBlob {
+    switch (products.get(sku)) {
+      case (null) { Runtime.trap("Product does not exist") };
+      case (?product) { product.imageBlob };
+    };
+  };
+
+  // Additional Product Queries
+  public query ({ caller }) func getProductBySku(sku : Text) : async Product {
+    switch (products.get(sku)) {
+      case (null) { Runtime.trap("Product does not exist") };
+      case (?product) { product };
+    };
+  };
+
+  public shared ({ caller }) func upsertProductBySku(product : Product) : async () {
+    switch (products.get(product.sku)) {
+      case (null) {
+        products.add(product.sku, product);
+      };
+      case (?existingProduct) {
+        let updatedProduct : Product = {
+          existingProduct with
+          nameCnSimplified = product.nameCnSimplified;
+          nameCnTraditional = product.nameCnTraditional;
+          category = product.category;
+          price = product.price;
+          stockStatus = product.stockStatus;
+          imageBlob = product.imageBlob;
+          updatedAt = Time.now();
+        };
+        products.add(product.sku, updatedProduct);
+      };
+    };
+  };
+
+  // User Profile Management (untouched from initial version)
   public shared ({ caller }) func inviteUser(id : Text, email : Text, fullName : Text, invitedBy : ?Text) : async () {
     let user : UserProfile = {
       id;
@@ -134,36 +219,7 @@ actor {
     };
   };
 
-  // Product Management
-  public shared ({ caller }) func upsertProductBySku(product : Product) : async () {
-    switch (products.get(product.sku)) {
-      case (null) {
-        products.add(product.sku, product);
-      };
-      case (?existingProduct) {
-        let updatedProduct : Product = {
-          existingProduct with
-          nameCnSimplified = product.nameCnSimplified;
-          nameCnTraditional = product.nameCnTraditional;
-          category = product.category;
-          price = product.price;
-          stockStatus = product.stockStatus;
-          imageUrl = product.imageUrl;
-          updatedAt = Time.now();
-        };
-        products.add(product.sku, updatedProduct);
-      };
-    };
-  };
-
-  public query ({ caller }) func getProductsBySku(sku : Text) : async Product {
-    switch (products.get(sku)) {
-      case (null) { Runtime.trap("Product does not exist") };
-      case (?product) { product };
-    };
-  };
-
-  // Order Management
+  // Order Management (untouched from initial version)
   public shared ({ caller }) func submitOrder(order : Order, items : [OrderItem]) : async () {
     let totalAmount = items.foldLeft(0.0, func(acc, item) { acc + item.subtotal });
     let updatedOrder : Order = {
@@ -258,7 +314,7 @@ actor {
         category = "手机";
         price = 499.99;
         stockStatus = "in_stock";
-        imageUrl = "https://example.com/images/phone_red.png";
+        imageBlob = null;
         createdAt = Time.now();
         updatedAt = Time.now();
       },
@@ -270,7 +326,7 @@ actor {
         category = "手机";
         price = 499.99;
         stockStatus = "in_stock";
-        imageUrl = "https://example.com/images/phone_blue.png";
+        imageBlob = null;
         createdAt = Time.now();
         updatedAt = Time.now();
       },

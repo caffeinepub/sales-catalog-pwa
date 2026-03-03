@@ -4,6 +4,7 @@ import type { Product } from "../backend.d";
 import { useCartStore } from "../stores/useCartStore";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { type Language, t } from "../translations";
+import type { ExtendedProduct } from "../types";
 
 interface ProductCardProps {
   product: Product;
@@ -88,9 +89,9 @@ export function ProductCard({ product }: ProductCardProps) {
     >
       {/* Product Image */}
       <div className="aspect-square bg-secondary relative overflow-hidden">
-        {product.imageUrl ? (
+        {(product as ExtendedProduct).imageBlobUrl ? (
           <img
-            src={product.imageUrl}
+            src={(product as ExtendedProduct).imageBlobUrl}
             alt={productName}
             className="w-full h-full object-cover"
             loading="lazy"
@@ -123,10 +124,17 @@ export function ProductCard({ product }: ProductCardProps) {
           {productName}
         </p>
 
+        {/* BBD */}
+        {(product as ExtendedProduct).bbd ? (
+          <p className="text-[10px] text-muted-foreground font-mono">
+            BBD: {(product as ExtendedProduct).bbd}
+          </p>
+        ) : null}
+
         {/* Price + Stock */}
         <div className="flex items-center justify-between gap-1">
           <span className="text-base font-bold text-primary-600">
-            ¥{product.price}
+            £{product.price}
           </span>
           <StockBadge status={product.stockStatus} lang={lang} />
         </div>

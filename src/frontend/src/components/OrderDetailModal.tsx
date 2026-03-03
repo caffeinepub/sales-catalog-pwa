@@ -118,10 +118,10 @@ export function OrderDetailModal({
                       {Number(item.quantity)}
                     </TableCell>
                     <TableCell className="text-right text-sm">
-                      ¥{item.unitPrice}
+                      £{item.unitPrice}
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold">
-                      ¥{item.subtotal.toFixed(0)}
+                      £{item.subtotal.toFixed(0)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -133,7 +133,7 @@ export function OrderDetailModal({
                     {t("grandTotal", lang)}
                   </TableCell>
                   <TableCell className="text-right font-bold text-base text-primary-600">
-                    ¥{order.totalAmount.toFixed(0)}
+                    £{order.totalAmount.toFixed(0)}
                   </TableCell>
                 </TableRow>
               </TableBody>

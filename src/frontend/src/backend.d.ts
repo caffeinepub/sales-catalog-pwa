@@ -7,6 +7,23 @@ export interface None {
     __kind__: "None";
 }
 export type Option<T> = Some<T> | None;
+export class ExternalBlob {
+    getBytes(): Promise<Uint8Array<ArrayBuffer>>;
+    getDirectURL(): string;
+    static fromURL(url: string): ExternalBlob;
+    static fromBytes(blob: Uint8Array<ArrayBuffer>): ExternalBlob;
+    withUploadProgress(onProgress: (percentage: number) => void): ExternalBlob;
+}
+export interface OrderItem {
+    id: string;
+    sku: string;
+    productId: string;
+    productName: string;
+    orderId: string;
+    quantity: bigint;
+    unitPrice: number;
+    subtotal: number;
+}
 export interface Order {
     id: string;
     customerName: string;
@@ -22,24 +39,14 @@ export interface Order {
 export interface Product {
     id: string;
     sku: string;
+    imageBlob?: ExternalBlob;
     stockStatus: string;
     createdAt: bigint;
     nameCnSimplified: string;
     updatedAt: bigint;
-    imageUrl: string;
     category: string;
     price: number;
     nameCnTraditional: string;
-}
-export interface OrderItem {
-    id: string;
-    sku: string;
-    productId: string;
-    productName: string;
-    orderId: string;
-    quantity: bigint;
-    unitPrice: number;
-    subtotal: number;
 }
 export enum UserRole {
     salesRep = "salesRep",
@@ -47,6 +54,7 @@ export enum UserRole {
 }
 export interface backendInterface {
     createAdminUser(id: string, email: string, fullName: string): Promise<void>;
+    createProduct(id: string, sku: string, nameCnSimplified: string, nameCnTraditional: string, category: string, price: number, stockStatus: string, imageBlob: ExternalBlob | null): Promise<void>;
     getAdminStats(): Promise<{
         totalProducts: bigint;
         totalOrders: bigint;
@@ -58,7 +66,8 @@ export interface backendInterface {
     }>;
     getAllOrders(): Promise<Array<Order>>;
     getOrdersByUser(userId: string): Promise<Array<Order>>;
-    getProductsBySku(sku: string): Promise<Product>;
+    getProductBySku(sku: string): Promise<Product>;
+    getProductImage(sku: string): Promise<ExternalBlob | null>;
     getTotalCounts(): Promise<{
         orders: bigint;
         users: bigint;
@@ -71,5 +80,6 @@ export interface backendInterface {
     seedData(): Promise<void>;
     submitOrder(order: Order, items: Array<OrderItem>): Promise<void>;
     syncOrder(orderId: string): Promise<void>;
+    updateProductImage(sku: string, imageBlob: ExternalBlob): Promise<void>;
     upsertProductBySku(product: Product): Promise<void>;
 }

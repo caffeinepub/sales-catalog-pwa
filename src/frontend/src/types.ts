@@ -22,6 +22,8 @@ export interface ExtendedProduct extends Product {
   uom: string;
   stock: number;
   promotions: string;
+  imageFileName: string; // filename to match against uploaded image folder (e.g. "product-001.jpg")
+  imageBlobUrl?: string; // resolved blob URL for display after image is uploaded
 }
 
 // Category entity stored in IndexedDB

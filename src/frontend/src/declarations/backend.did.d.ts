@@ -10,6 +10,7 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export type ExternalBlob = Uint8Array;
 export interface Order {
   'id' : string,
   'customerName' : string,
@@ -35,19 +36,58 @@ export interface OrderItem {
 export interface Product {
   'id' : string,
   'sku' : string,
+  'imageBlob' : [] | [ExternalBlob],
   'stockStatus' : string,
   'createdAt' : bigint,
   'nameCnSimplified' : string,
   'updatedAt' : bigint,
-  'imageUrl' : string,
   'category' : string,
   'price' : number,
   'nameCnTraditional' : string,
 }
 export type UserRole = { 'salesRep' : null } |
   { 'admin' : null };
+export interface _CaffeineStorageCreateCertificateResult {
+  'method' : string,
+  'blob_hash' : string,
+}
+export interface _CaffeineStorageRefillInformation {
+  'proposed_top_up_amount' : [] | [bigint],
+}
+export interface _CaffeineStorageRefillResult {
+  'success' : [] | [boolean],
+  'topped_up_amount' : [] | [bigint],
+}
 export interface _SERVICE {
+  '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
+  '_caffeineStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
+  '_caffeineStorageConfirmBlobDeletion' : ActorMethod<
+    [Array<Uint8Array>],
+    undefined
+  >,
+  '_caffeineStorageCreateCertificate' : ActorMethod<
+    [string],
+    _CaffeineStorageCreateCertificateResult
+  >,
+  '_caffeineStorageRefillCashier' : ActorMethod<
+    [[] | [_CaffeineStorageRefillInformation]],
+    _CaffeineStorageRefillResult
+  >,
+  '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   'createAdminUser' : ActorMethod<[string, string, string], undefined>,
+  'createProduct' : ActorMethod<
+    [
+      string,
+      string,
+      string,
+      string,
+      string,
+      number,
+      string,
+      [] | [ExternalBlob],
+    ],
+    undefined
+  >,
   'getAdminStats' : ActorMethod<
     [],
     {
@@ -62,7 +102,8 @@ export interface _SERVICE {
   >,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
   'getOrdersByUser' : ActorMethod<[string], Array<Order>>,
-  'getProductsBySku' : ActorMethod<[string], Product>,
+  'getProductBySku' : ActorMethod<[string], Product>,
+  'getProductImage' : ActorMethod<[string], [] | [ExternalBlob]>,
   'getTotalCounts' : ActorMethod<
     [],
     {
@@ -81,6 +122,7 @@ export interface _SERVICE {
   'seedData' : ActorMethod<[], undefined>,
   'submitOrder' : ActorMethod<[Order, Array<OrderItem>], undefined>,
   'syncOrder' : ActorMethod<[string], undefined>,
+  'updateProductImage' : ActorMethod<[string, ExternalBlob], undefined>,
   'upsertProductBySku' : ActorMethod<[Product], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;

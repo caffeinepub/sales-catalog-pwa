@@ -1,4 +1,11 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Loader2, ShoppingBag } from "lucide-react";
@@ -7,7 +14,31 @@ import { useNavigate } from "react-router-dom";
 import { getBackendActor } from "../lib/backendService";
 import { saveCustomersToCache, saveProductsToCache } from "../lib/db";
 import { SAMPLE_CUSTOMERS, SAMPLE_PRODUCTS } from "../lib/sampleData";
-import { ADMIN_USER, useAuthStore } from "../stores/useAuthStore";
+import {
+  ADMIN_USER,
+  getUserCred,
+  setUserPassword,
+  useAuthStore,
+} from "../stores/useAuthStore";
+
+// Read persisted users list created by UserManagement
+const USERS_STORE_KEY = "sales_catalog_users_list";
+interface StoredUser {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "sales_rep";
+}
+function findStoredUser(email: string): StoredUser | undefined {
+  try {
+    const raw = localStorage.getItem(USERS_STORE_KEY);
+    if (!raw) return undefined;
+    const list = JSON.parse(raw) as StoredUser[];
+    return list.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  } catch {
+    return undefined;
+  }
+}
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
@@ -19,6 +50,18 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Force-change password dialog state
+  const [showForceChange, setShowForceChange] = useState(false);
+  const [pendingUser, setPendingUser] = useState<{
+    id: string;
+    email: string;
+    name: string;
+    role: "admin" | "sales_rep";
+  } | null>(null);
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdError, setPwdError] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,13 +86,54 @@ export function LoginPage() {
           role: ADMIN_USER.role,
         };
       } else if (email && password) {
-        // Any other email creates a sales_rep
-        user = {
-          id: crypto.randomUUID(),
-          email,
-          name: email.split("@")[0] || "Sales Rep",
-          role: "sales_rep" as const,
-        };
+        // Check per-user credentials
+        const cred = getUserCred(email);
+        if (cred) {
+          // Credentials exist — verify password
+          if (cred.password !== password) {
+            setError(t("loginError", lang));
+            setLoading(false);
+            return;
+          }
+          // Look up stored user record to get correct id/name/role
+          const stored = findStoredUser(email);
+          // Password correct — check if mustChange
+          user = {
+            id: stored?.id || crypto.randomUUID(),
+            email,
+            name: stored?.name || email.split("@")[0] || "Sales Rep",
+            role: (stored?.role as "admin" | "sales_rep") ?? "sales_rep",
+          };
+          if (cred.mustChange) {
+            // Seed data and cache before showing force-change dialog
+            try {
+              const backendActor = await getBackendActor();
+              await backendActor.seedData();
+            } catch {
+              // Idempotent
+            }
+            await Promise.all([
+              saveProductsToCache(SAMPLE_PRODUCTS),
+              saveCustomersToCache(SAMPLE_CUSTOMERS),
+            ]);
+            setPendingUser(user);
+            setNewPwd("");
+            setConfirmPwd("");
+            setPwdError("");
+            setShowForceChange(true);
+            setLoading(false);
+            return;
+          }
+        } else {
+          // No credential entry — legacy / first-time flow, allow entry
+          const stored = findStoredUser(email);
+          user = {
+            id: stored?.id || crypto.randomUUID(),
+            email,
+            name: stored?.name || email.split("@")[0] || "Sales Rep",
+            role: (stored?.role as "admin" | "sales_rep") ?? "sales_rep",
+          };
+        }
       } else {
         setError(t("loginError", lang));
         setLoading(false);
@@ -77,6 +161,25 @@ export function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForceChangePassword = () => {
+    setPwdError("");
+    if (newPwd.length < 6) {
+      setPwdError(t("passwordTooShort", lang));
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdError(t("passwordMismatch", lang));
+      return;
+    }
+    if (!pendingUser) return;
+    // Save new password
+    setUserPassword(pendingUser.email, newPwd, false);
+    // Log them in
+    login(pendingUser);
+    setShowForceChange(false);
+    navigate("/catalog");
   };
 
   return (
@@ -187,6 +290,68 @@ export function LoginPage() {
           caffeine.ai
         </a>
       </p>
+
+      {/* Force Change Password Dialog — non-dismissible */}
+      <Dialog
+        open={showForceChange}
+        onOpenChange={() => {
+          // Intentionally block dismissal — user must set password
+        }}
+      >
+        <DialogContent
+          className="w-[95vw] max-w-sm rounded-2xl [&>button]:hidden"
+          data-ocid="login.force_change.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>{t("mustChangePasswordTitle", lang)}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground -mt-1">
+            {t("setPasswordDesc", lang)}
+          </p>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t("newPassword", lang)}</Label>
+              <Input
+                data-ocid="login.new_password.input"
+                type="password"
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t("confirmPassword", lang)}</Label>
+              <Input
+                data-ocid="login.confirm_password.input"
+                type="password"
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+            {pwdError && (
+              <p
+                className="text-sm text-red-600"
+                data-ocid="login.force_change.error_state"
+              >
+                {pwdError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              data-ocid="login.force_change.save_button"
+              onClick={handleForceChangePassword}
+              disabled={!newPwd || !confirmPwd}
+              className="w-full bg-primary-600 hover:bg-primary-700 text-white"
+            >
+              {t("setYourPassword", lang)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

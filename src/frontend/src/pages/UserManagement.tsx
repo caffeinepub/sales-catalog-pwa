@@ -23,7 +23,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
-import { useAuthStore } from "../stores/useAuthStore";
+import { setUserPassword, useAuthStore } from "../stores/useAuthStore";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
@@ -36,23 +36,40 @@ interface UserRecord {
   joinDate: string;
 }
 
-const INITIAL_USERS: UserRecord[] = [
-  {
-    id: "admin-001",
-    email: "admin@admin.com",
-    name: "Admin User",
-    role: "admin",
-    totalOrders: 0,
-    joinDate: new Date().toLocaleDateString("zh-CN"),
-  },
-];
+const USERS_STORE_KEY = "sales_catalog_users_list";
+
+const DEFAULT_ADMIN: UserRecord = {
+  id: "admin-001",
+  email: "admin@admin.com",
+  name: "Admin User",
+  role: "admin",
+  totalOrders: 0,
+  joinDate: new Date().toLocaleDateString("zh-CN"),
+};
+
+function loadUsers(): UserRecord[] {
+  try {
+    const raw = localStorage.getItem(USERS_STORE_KEY);
+    if (!raw) return [DEFAULT_ADMIN];
+    const parsed = JSON.parse(raw) as UserRecord[];
+    // Ensure admin is always present
+    const hasAdmin = parsed.some((u) => u.id === "admin-001");
+    return hasAdmin ? parsed : [DEFAULT_ADMIN, ...parsed];
+  } catch {
+    return [DEFAULT_ADMIN];
+  }
+}
+
+function persistUsers(users: UserRecord[]): void {
+  localStorage.setItem(USERS_STORE_KEY, JSON.stringify(users));
+}
 
 export function UserManagement() {
   const navigate = useNavigate();
   const { lang } = useLanguageStore();
   const { currentUser } = useAuthStore();
   const isOnline = useOnlineStatus();
-  const [users, setUsers] = useState<UserRecord[]>(INITIAL_USERS);
+  const [users, setUsers] = useState<UserRecord[]>(loadUsers);
   const [showInvite, setShowInvite] = useState(false);
   const [showAddAdmin, setShowAddAdmin] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -66,26 +83,35 @@ export function UserManagement() {
     setSaving(true);
     try {
       const id = crypto.randomUUID();
+      // Attempt backend sync, but don't block local creation on failure
       if (isOnline) {
-        const backendActor = await getBackendActor();
-        await backendActor.inviteUser(
-          id,
-          inviteEmail,
-          inviteName,
-          currentUser?.id || null,
-        );
+        try {
+          const backendActor = await getBackendActor();
+          await backendActor.inviteUser(
+            id,
+            inviteEmail,
+            inviteName,
+            currentUser?.id || null,
+          );
+        } catch {
+          // Backend sync failed -- continue with local creation
+        }
       }
-      setUsers((prev) => [
-        ...prev,
-        {
-          id,
-          email: inviteEmail,
-          name: inviteName,
-          role: "sales_rep",
-          totalOrders: 0,
-          joinDate: new Date().toLocaleDateString("zh-CN"),
-        },
-      ]);
+      // Set initial password = user ID, mustChange = true
+      setUserPassword(inviteEmail, id, true);
+      const newUser: UserRecord = {
+        id,
+        email: inviteEmail,
+        name: inviteName,
+        role: "sales_rep",
+        totalOrders: 0,
+        joinDate: new Date().toLocaleDateString("zh-CN"),
+      };
+      setUsers((prev) => {
+        const updated = [...prev, newUser];
+        persistUsers(updated);
+        return updated;
+      });
       setShowInvite(false);
       setInviteEmail("");
       setInviteName("");
@@ -102,21 +128,30 @@ export function UserManagement() {
     setSaving(true);
     try {
       const id = crypto.randomUUID();
+      // Attempt backend sync, but don't block local creation on failure
       if (isOnline) {
-        const backendActor = await getBackendActor();
-        await backendActor.createAdminUser(id, adminEmail, adminName);
+        try {
+          const backendActor = await getBackendActor();
+          await backendActor.createAdminUser(id, adminEmail, adminName);
+        } catch {
+          // Backend sync failed -- continue with local creation
+        }
       }
-      setUsers((prev) => [
-        ...prev,
-        {
-          id,
-          email: adminEmail,
-          name: adminName,
-          role: "admin",
-          totalOrders: 0,
-          joinDate: new Date().toLocaleDateString("zh-CN"),
-        },
-      ]);
+      // Set initial password = user ID, mustChange = true
+      setUserPassword(adminEmail, id, true);
+      const newAdmin: UserRecord = {
+        id,
+        email: adminEmail,
+        name: adminName,
+        role: "admin",
+        totalOrders: 0,
+        joinDate: new Date().toLocaleDateString("zh-CN"),
+      };
+      setUsers((prev) => {
+        const updated = [...prev, newAdmin];
+        persistUsers(updated);
+        return updated;
+      });
       setShowAddAdmin(false);
       setAdminEmail("");
       setAdminName("");
@@ -263,6 +298,11 @@ export function UserManagement() {
                 placeholder="sales@company.com"
               />
             </div>
+            <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+              {lang === "english"
+                ? "Initial password: User ID (shown after saving)"
+                : "初始密碼：用戶 ID（保存後顯示）"}
+            </p>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowInvite(false)}>
@@ -310,6 +350,11 @@ export function UserManagement() {
                 placeholder="admin@company.com"
               />
             </div>
+            <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+              {lang === "english"
+                ? "Initial password: User ID (shown after saving)"
+                : "初始密碼：用戶 ID（保存後顯示）"}
+            </p>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowAddAdmin(false)}>

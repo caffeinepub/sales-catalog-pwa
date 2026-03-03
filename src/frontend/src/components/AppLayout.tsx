@@ -1,23 +1,39 @@
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ChevronDown,
   ClipboardList,
   Grid3X3,
+  KeyRound,
   Settings,
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { syncPendingOrders } from "../lib/sync";
-import { useAuthStore } from "../stores/useAuthStore";
+import {
+  changeAdminPassword,
+  changeUserPassword,
+  useAuthStore,
+} from "../stores/useAuthStore";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
@@ -28,6 +44,13 @@ export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const prevOnlineRef = useRef(isOnline);
+
+  // Change password dialog state
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [oldPwd, setOldPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdError, setPwdError] = useState("");
 
   // Auto-sync when coming back online
   useEffect(() => {
@@ -46,6 +69,44 @@ export function AppLayout() {
     }
     prevOnlineRef.current = isOnline;
   }, [isOnline, currentUser, lang]);
+
+  const handleChangePassword = () => {
+    setPwdError("");
+    if (newPwd !== confirmPwd) {
+      setPwdError(t("passwordMismatch", lang));
+      return;
+    }
+    let result: string | null;
+    if (currentUser?.role === "admin") {
+      result = changeAdminPassword(oldPwd, newPwd);
+    } else if (currentUser?.email) {
+      result = changeUserPassword(currentUser.email, oldPwd, newPwd);
+    } else {
+      return;
+    }
+    if (result === "wrong") {
+      setPwdError(t("passwordWrong", lang));
+      return;
+    }
+    if (result === "short") {
+      setPwdError(t("passwordTooShort", lang));
+      return;
+    }
+    toast.success(t("passwordChanged", lang));
+    setShowChangePassword(false);
+    setOldPwd("");
+    setNewPwd("");
+    setConfirmPwd("");
+    setPwdError("");
+  };
+
+  const openChangePassword = () => {
+    setOldPwd("");
+    setNewPwd("");
+    setConfirmPwd("");
+    setPwdError("");
+    setShowChangePassword(true);
+  };
 
   const navItems = [
     {
@@ -129,6 +190,7 @@ export function AppLayout() {
                 <button
                   type="button"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-accent transition-colors min-h-[36px] touch-manipulation"
+                  data-ocid="header.user.dropdown_menu"
                 >
                   <div className="w-7 h-7 rounded-full bg-primary-600 text-white text-xs font-bold flex items-center justify-center">
                     {currentUser?.name?.charAt(0) ?? "U"}
@@ -146,10 +208,20 @@ export function AppLayout() {
                   </p>
                 </div>
                 <DropdownMenuItem
+                  onClick={openChangePassword}
+                  data-ocid="header.change_password.button"
+                  className="cursor-pointer gap-2"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  {t("changePassword", lang)}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
                   onClick={() => {
                     logout();
                     navigate("/login");
                   }}
+                  data-ocid="header.logout.button"
                   className="text-destructive focus:text-destructive cursor-pointer"
                 >
                   {t("logout", lang)}
@@ -197,6 +269,89 @@ export function AppLayout() {
           })}
         </div>
       </nav>
+
+      {/* Change Password Dialog */}
+      <Dialog
+        open={showChangePassword}
+        onOpenChange={(o) => {
+          if (!o) {
+            setShowChangePassword(false);
+            setPwdError("");
+          }
+        }}
+      >
+        <DialogContent
+          className="w-[95vw] max-w-sm rounded-2xl"
+          data-ocid="header.change_password.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>{t("changePassword", lang)}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t("oldPassword", lang)}</Label>
+              <Input
+                data-ocid="header.old_password.input"
+                type="password"
+                value={oldPwd}
+                onChange={(e) => setOldPwd(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t("newPassword", lang)}</Label>
+              <Input
+                data-ocid="header.new_password.input"
+                type="password"
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t("confirmPassword", lang)}</Label>
+              <Input
+                data-ocid="header.confirm_password.input"
+                type="password"
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+            {pwdError && (
+              <p
+                className="text-sm text-red-600"
+                data-ocid="header.change_password.error_state"
+              >
+                {pwdError}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              data-ocid="header.change_password.cancel_button"
+              onClick={() => {
+                setShowChangePassword(false);
+                setPwdError("");
+              }}
+            >
+              {t("cancel", lang)}
+            </Button>
+            <Button
+              data-ocid="header.change_password.save_button"
+              onClick={handleChangePassword}
+              disabled={!oldPwd || !newPwd || !confirmPwd}
+              className="bg-primary-600 hover:bg-primary-700 text-white"
+            >
+              {t("save", lang)}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

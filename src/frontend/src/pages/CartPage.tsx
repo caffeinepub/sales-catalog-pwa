@@ -222,10 +222,10 @@ export function CartPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right text-sm">
-                    ¥{item.unitPrice}
+                    £{item.unitPrice}
                   </TableCell>
                   <TableCell className="text-right text-sm font-semibold">
-                    ¥{(item.unitPrice * item.quantity).toFixed(0)}
+                    £{(item.unitPrice * item.quantity).toFixed(0)}
                   </TableCell>
                   <TableCell>
                     <button
@@ -243,7 +243,7 @@ export function CartPage() {
                   {t("grandTotal", lang)}
                 </TableCell>
                 <TableCell className="text-right font-bold text-base text-primary-600">
-                  ¥{totalAmount.toFixed(0)}
+                  £{totalAmount.toFixed(0)}
                 </TableCell>
                 <TableCell />
               </TableRow>
@@ -267,9 +267,9 @@ export function CartPage() {
                     {item.name}
                   </p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    ¥{item.unitPrice} × {item.quantity} ={" "}
+                    £{item.unitPrice} × {item.quantity} ={" "}
                     <span className="font-bold text-foreground">
-                      ¥{(item.unitPrice * item.quantity).toFixed(0)}
+                      £{(item.unitPrice * item.quantity).toFixed(0)}
                     </span>
                   </p>
                 </div>
@@ -308,7 +308,7 @@ export function CartPage() {
               {t("grandTotal", lang)}
             </span>
             <span className="font-bold text-xl text-primary-600">
-              ¥{totalAmount.toFixed(0)}
+              £{totalAmount.toFixed(0)}
             </span>
           </div>
         </div>

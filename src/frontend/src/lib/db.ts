@@ -28,13 +28,17 @@ interface SalesCatalogDB extends DBSchema {
     key: string;
     value: Category;
   };
+  image_blobs_cache: {
+    key: string;
+    value: { fileName: string; bytes: Uint8Array };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<SalesCatalogDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<SalesCatalogDB>("sales-catalog-db", 2, {
+    dbPromise = openDB<SalesCatalogDB>("sales-catalog-db", 4, {
       upgrade(db, oldVersion) {
         if (oldVersion < 1) {
           if (!db.objectStoreNames.contains("products_cache")) {
@@ -59,6 +63,19 @@ function getDB() {
           }
           if (!db.objectStoreNames.contains("categories_cache")) {
             db.createObjectStore("categories_cache", { keyPath: "id" });
+          }
+        }
+        if (oldVersion < 3) {
+          // Schema changed: imageUrl removed, imageFileName/imageBlobUrl added.
+          // Clear and recreate to avoid type errors from old cached records.
+          if (db.objectStoreNames.contains("extended_products")) {
+            db.deleteObjectStore("extended_products");
+          }
+          db.createObjectStore("extended_products", { keyPath: "id" });
+        }
+        if (oldVersion < 4) {
+          if (!db.objectStoreNames.contains("image_blobs_cache")) {
+            db.createObjectStore("image_blobs_cache", { keyPath: "fileName" });
           }
         }
       },
@@ -186,4 +203,21 @@ export async function removePendingOrder(orderId: string): Promise<void> {
     items.map((key) => tx.objectStore("pending_order_items").delete(key)),
   );
   await tx.done;
+}
+
+// Image Blobs Cache
+export async function saveImageBlob(
+  fileName: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  const db = await getDB();
+  await db.put("image_blobs_cache", { fileName, bytes });
+}
+
+export async function getImageBlob(
+  fileName: string,
+): Promise<Uint8Array | undefined> {
+  const db = await getDB();
+  const entry = await db.get("image_blobs_cache", fileName);
+  return entry?.bytes;
 }

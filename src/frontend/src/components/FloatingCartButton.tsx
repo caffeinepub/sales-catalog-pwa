@@ -30,7 +30,7 @@ export function FloatingCartButton() {
         </div>
         <div className="flex flex-col items-start">
           <span className="text-xs opacity-90">{count} 件</span>
-          <span className="text-sm font-bold">¥{totalAmount.toFixed(0)}</span>
+          <span className="text-sm font-bold">£{totalAmount.toFixed(0)}</span>
         </div>
       </motion.button>
     </AnimatePresence>

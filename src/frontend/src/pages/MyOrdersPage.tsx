@@ -204,7 +204,7 @@ export function MyOrdersPage() {
                       {t("grandTotal", lang)}
                     </span>
                     <span className="text-base font-bold text-primary-600">
-                      ¥{order.totalAmount.toFixed(0)}
+                      £{order.totalAmount.toFixed(0)}
                     </span>
                   </div>
                 </button>
