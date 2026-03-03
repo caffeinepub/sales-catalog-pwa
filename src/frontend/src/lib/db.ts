@@ -1,6 +1,12 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
 import type { Order, OrderItem, Product } from "../backend.d";
-import type { Category, Customer, ExtendedProduct } from "../types";
+import type {
+  Category,
+  Container,
+  ContainerItem,
+  Customer,
+  ExtendedProduct,
+} from "../types";
 
 interface SalesCatalogDB extends DBSchema {
   products_cache: {
@@ -32,13 +38,22 @@ interface SalesCatalogDB extends DBSchema {
     key: string;
     value: { fileName: string; bytes: Uint8Array };
   };
+  containers_cache: {
+    key: string;
+    value: Container;
+  };
+  container_items_cache: {
+    key: string;
+    value: ContainerItem;
+    indexes: { "by-container": string };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<SalesCatalogDB>> | null = null;
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<SalesCatalogDB>("sales-catalog-db", 4, {
+    dbPromise = openDB<SalesCatalogDB>("sales-catalog-db", 5, {
       upgrade(db, oldVersion) {
         if (oldVersion < 1) {
           if (!db.objectStoreNames.contains("products_cache")) {
@@ -76,6 +91,17 @@ function getDB() {
         if (oldVersion < 4) {
           if (!db.objectStoreNames.contains("image_blobs_cache")) {
             db.createObjectStore("image_blobs_cache", { keyPath: "fileName" });
+          }
+        }
+        if (oldVersion < 5) {
+          if (!db.objectStoreNames.contains("containers_cache")) {
+            db.createObjectStore("containers_cache", { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains("container_items_cache")) {
+            const store = db.createObjectStore("container_items_cache", {
+              keyPath: "id",
+            });
+            store.createIndex("by-container", "containerId");
           }
         }
       },
@@ -220,4 +246,58 @@ export async function getImageBlob(
   const db = await getDB();
   const entry = await db.get("image_blobs_cache", fileName);
   return entry?.bytes;
+}
+
+// Containers
+export async function saveContainer(container: Container): Promise<void> {
+  const db = await getDB();
+  await db.put("containers_cache", container);
+}
+
+export async function getAllContainers(): Promise<Container[]> {
+  const db = await getDB();
+  return db.getAll("containers_cache");
+}
+
+export async function deleteContainerFromDb(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("containers_cache", id);
+}
+
+// Container Items
+export async function saveContainerItem(item: ContainerItem): Promise<void> {
+  const db = await getDB();
+  await db.put("container_items_cache", item);
+}
+
+export async function getContainerItems(
+  containerId: string,
+): Promise<ContainerItem[]> {
+  const db = await getDB();
+  return db.getAllFromIndex(
+    "container_items_cache",
+    "by-container",
+    containerId,
+  );
+}
+
+export async function deleteContainerItem(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("container_items_cache", id);
+}
+
+export async function deleteAllContainerItems(
+  containerId: string,
+): Promise<void> {
+  const db = await getDB();
+  const items = await db.getAllFromIndex(
+    "container_items_cache",
+    "by-container",
+    containerId,
+  );
+  const tx = db.transaction("container_items_cache", "readwrite");
+  await Promise.all([
+    ...items.map((item) => tx.store.delete(item.id)),
+    tx.done,
+  ]);
 }

@@ -1,43 +1,38 @@
 # Sales Catalog PWA
 
 ## Current State
-- Full-stack app with Motoko backend and React/TypeScript frontend
-- Language: supports Traditional Chinese and English (simplified Chinese was removed in a prior pass; language store already uses `"traditional" | "english"`)
-- Product type: `{ id, sku, nameCnSimplified, nameCnTraditional, category, price, stockStatus, imageUrl, createdAt, updatedAt }`
-- Admin: product management, user management, customer management pages
-- No Category entity exists in backend or frontend
+- ProductManagement: A-Z alphabet filter bar only renders inside the `filtered.length > 0` branch -- it disappears when a search returns no results.
+- ContainerManagement: product items are entered manually (SKU + name). No bulk Product_ID upload. No "Shipment #" field on containers.
+- Authorization: only two roles exist -- admin and sales_rep. No per-user "container editor" permission flag. All users with access to the admin area can currently edit containers.
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Category table/entity** in backend: `{ id, catId, catEn, catCn, subCat, createdAt, updatedAt }`
-- Backend CRUD for categories: `upsertCategory`, `getCategory`, `getAllCategories`, `deleteCategory`
-- New admin section: **Category Management** page (`/admin/categories`) with full CRUD table UI
-- Navigation card for Category Management on AdminDashboard
-- Extra product fields: `categoryId` (Text), `brand` (Text), `nameEn` (Text), `size` (Text), `bbd` (Text, ISO date string), `vat` (Float), `uom` (Text), `stock` (Nat), `promotions` (Text)
-- New translation keys for all new fields (Traditional Chinese + English)
+- `shipmentNo` field on the `Container` type, persisted in IndexedDB.
+- "Shipment #" input in the container add/edit modal.
+- "Shipment #" column in the containers table.
+- Bulk Product_ID upload button in ContainerManagement modal: paste or upload a list of SKUs; the app looks up each SKU in extended_products and auto-fills the product rows (name, price, etc.).
+- `canEditContainers` boolean permission flag on `UserRecord` (UserManagement) and on the auth session.
+- Permission check in ContainerManagement: if the current user does not have `canEditContainers`, hide the Add / Edit / Delete buttons and show a read-only view. All users (admin included) default to allowed; new non-admin users default to not allowed unless the admin grants it.
+- Toggle in UserManagement per-user edit form to grant/revoke "Container Editor" permission.
 
 ### Modify
-- Backend `Product` type: add `categoryId`, `brand`, `nameEn`, `size`, `bbd`, `vat`, `uom`, `stock`, `promotions`
-- Backend `upsertProductBySku`: update fields included in the upsert
-- `backend.d.ts`: reflect updated Product type and new Category type + methods
-- `ProductManagement.tsx`: add form fields for all new product fields; update table columns
-- `sampleData.ts`: update SAMPLE_PRODUCTS to include new fields with default/empty values
-- `translations.ts`: add keys for new product fields and category management
-- `AdminDashboard.tsx`: add Category Management nav card; update description strings to use translations only (no hardcoded strings)
-- `App.tsx`: add route `/admin/categories`
+- ProductManagement: move the alphabet strip (and page info) outside the `filtered.length > 0` conditional so it always renders, even when the table is empty.
+- ContainerManagement: add `shipmentNo` to form state, save/load in handleSave/openEdit, display in table.
+- UserManagement: add `canEditContainers` field to `UserRecord`, default admin to `true`, default others to `false`. Show a toggle in the edit form.
+- useAuthStore / AuthUser: add `canEditContainers?: boolean` to `AuthUser` so the session carries the permission.
+- db.ts: bump DB version to 6, add migration for containers_cache to handle new `shipmentNo` field (safe because it is optional).
 
 ### Remove
-- `nameCnSimplified` field from Product (rename to keep only `nameCnTraditional` and new `nameEn`; however to avoid breaking existing data, keep `nameCnSimplified` in backend for backward compat but the frontend will stop displaying/requiring it -- **actually**: keep `nameCnSimplified` in the backend type to avoid breaking existing data, but the product form will focus on `nameCnTraditional` and `nameEn` as the primary display fields)
-- Any remaining hardcoded Simplified Chinese UI text in frontend components
+- Nothing removed.
 
 ## Implementation Plan
-1. Update `main.mo`: add Category type + CRUD, extend Product type with new fields
-2. Regenerate `backend.d.ts` to match new Motoko types
-3. Update `translations.ts`: add keys for new product/category fields, remove/fix any simplified Chinese in translation values
-4. Update `sampleData.ts`: populate new product fields with sensible defaults
-5. Update `ProductManagement.tsx`: add new form fields (categoryId, brand, nameEn, size, bbd, vat, uom, stock, promotions), update table
-6. Create `CategoryManagement.tsx`: full CRUD page for categories
-7. Update `AdminDashboard.tsx`: add category management card, fix hardcoded strings
-8. Update `App.tsx`: add `/admin/categories` route
-9. Update `db.ts`: add categories_cache store
+1. `types.ts` -- add `shipmentNo?: string` to `Container`.
+2. `useAuthStore.ts` -- add `canEditContainers?: boolean` to `AuthUser`.
+3. `db.ts` -- bump version to 6 with upgrade that clears and recreates `containers_cache` to pick up new field.
+4. `UserManagement.tsx` -- add `canEditContainers` to `UserRecord`, default admin=true others=false, add toggle in edit form, persist it, update auth session when user edits themselves.
+5. `ContainerManagement.tsx`:
+   a. Add `shipmentNo` field to `ContainerForm`, modal, table column.
+   b. Add "Bulk Upload SKUs" button in product items section; opens a textarea where user pastes SKUs (one per line); on confirm, look up each SKU in `getAllExtendedProducts()` and add/replace matching item rows.
+   c. Read `canEditContainers` from auth store; hide add/edit/delete controls and show a "Read Only" badge when false.
+6. `ProductManagement.tsx` -- move alphabet strip + page-info paragraph out of the `filtered.length > 0` block so they always render (alongside empty state).

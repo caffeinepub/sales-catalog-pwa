@@ -5,6 +5,7 @@ import { AdminDashboard } from "./pages/AdminDashboard";
 import { CartPage } from "./pages/CartPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { CategoryManagement } from "./pages/CategoryManagement";
+import { ContainerManagement } from "./pages/ContainerManagement";
 import { CustomerManagement } from "./pages/CustomerManagement";
 import { LoginPage } from "./pages/LoginPage";
 import { MyOrdersPage } from "./pages/MyOrdersPage";
@@ -101,6 +102,14 @@ export default function App() {
             element={
               <AdminRoute>
                 <CategoryManagement />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="admin/containers"
+            element={
+              <AdminRoute>
+                <ContainerManagement />
               </AdminRoute>
             }
           />

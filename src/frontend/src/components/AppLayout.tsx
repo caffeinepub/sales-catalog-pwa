@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import {
   ChevronDown,
   ClipboardList,
+  Container,
   Grid3X3,
   KeyRound,
   Settings,
@@ -28,6 +29,7 @@ import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { useSessionTimeout } from "../hooks/useSessionTimeout";
 import { syncPendingOrders } from "../lib/sync";
 import {
   changeAdminPassword,
@@ -44,6 +46,9 @@ export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const prevOnlineRef = useRef(isOnline);
+
+  // Session timeout: log out after 30 minutes of inactivity
+  useSessionTimeout();
 
   // Change password dialog state
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -125,6 +130,11 @@ export function AppLayout() {
             path: "/admin",
             label: t("admin", lang),
             icon: Settings,
+          },
+          {
+            path: "/admin/containers",
+            label: t("containers", lang),
+            icon: Container,
           },
         ]
       : []),

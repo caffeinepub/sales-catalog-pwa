@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,6 +19,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import {
   Table,
   TableBody,
   TableCell,
@@ -16,14 +34,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Plus, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Trash2, UserPlus, Users } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
-import { setUserPassword, useAuthStore } from "../stores/useAuthStore";
+import {
+  type AuthUser,
+  setUserPassword,
+  useAuthStore,
+} from "../stores/useAuthStore";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
@@ -34,6 +56,7 @@ interface UserRecord {
   role: "admin" | "sales_rep";
   totalOrders: number;
   joinDate: string;
+  canEditContainers: boolean;
 }
 
 const USERS_STORE_KEY = "sales_catalog_users_list";
@@ -45,6 +68,7 @@ const DEFAULT_ADMIN: UserRecord = {
   role: "admin",
   totalOrders: 0,
   joinDate: new Date().toLocaleDateString("zh-CN"),
+  canEditContainers: true,
 };
 
 function loadUsers(): UserRecord[] {
@@ -52,9 +76,18 @@ function loadUsers(): UserRecord[] {
     const raw = localStorage.getItem(USERS_STORE_KEY);
     if (!raw) return [DEFAULT_ADMIN];
     const parsed = JSON.parse(raw) as UserRecord[];
+    // Ensure canEditContainers has a default value for existing records
+    const normalised = parsed.map((u) => ({
+      ...u,
+      canEditContainers: u.canEditContainers ?? false,
+    }));
     // Ensure admin is always present
-    const hasAdmin = parsed.some((u) => u.id === "admin-001");
-    return hasAdmin ? parsed : [DEFAULT_ADMIN, ...parsed];
+    const hasAdmin = normalised.some((u) => u.id === "admin-001");
+    if (!hasAdmin) return [DEFAULT_ADMIN, ...normalised];
+    // Ensure admin-001 always has canEditContainers: true
+    return normalised.map((u) =>
+      u.id === "admin-001" ? { ...u, canEditContainers: true } : u,
+    );
   } catch {
     return [DEFAULT_ADMIN];
   }
@@ -64,58 +97,143 @@ function persistUsers(users: UserRecord[]): void {
   localStorage.setItem(USERS_STORE_KEY, JSON.stringify(users));
 }
 
+interface UserForm {
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "sales_rep";
+  canEditContainers: boolean;
+}
+
+const emptyForm: UserForm = {
+  id: "",
+  email: "",
+  name: "",
+  role: "sales_rep",
+  canEditContainers: false,
+};
+
 export function UserManagement() {
   const navigate = useNavigate();
   const { lang } = useLanguageStore();
   const { currentUser } = useAuthStore();
   const isOnline = useOnlineStatus();
   const [users, setUsers] = useState<UserRecord[]>(loadUsers);
-  const [showInvite, setShowInvite] = useState(false);
-  const [showAddAdmin, setShowAddAdmin] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
-  const [adminEmail, setAdminEmail] = useState("");
-  const [adminName, setAdminName] = useState("");
+
+  // Combined add/edit modal
+  const [showModal, setShowModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
+  const [form, setForm] = useState<UserForm>(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  const handleInvite = async () => {
-    if (!inviteEmail || !inviteName) return;
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<UserRecord | null>(null);
+
+  const handleDeleteConfirm = () => {
+    if (!deleteTarget) return;
+    const updated = users.filter((u) => u.id !== deleteTarget.id);
+    persistUsers(updated);
+    setUsers(updated);
+    setDeleteTarget(null);
+    toast.success(lang === "english" ? "User deleted." : "用戶已刪除。");
+  };
+
+  const openAdd = (defaultRole: "admin" | "sales_rep" = "sales_rep") => {
+    setEditingUser(null);
+    setForm({ ...emptyForm, role: defaultRole });
+    setShowModal(true);
+  };
+
+  const openEdit = (user: UserRecord) => {
+    setEditingUser(user);
+    setForm({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      canEditContainers: user.canEditContainers ?? false,
+    });
+    setShowModal(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.email || !form.name) return;
     setSaving(true);
     try {
-      const id = crypto.randomUUID();
-      // Attempt backend sync, but don't block local creation on failure
-      if (isOnline) {
-        try {
-          const backendActor = await getBackendActor();
-          await backendActor.inviteUser(
-            id,
-            inviteEmail,
-            inviteName,
-            currentUser?.id || null,
-          );
-        } catch {
-          // Backend sync failed -- continue with local creation
-        }
-      }
-      // Set initial password = user ID, mustChange = true
-      setUserPassword(inviteEmail, id, true);
-      const newUser: UserRecord = {
-        id,
-        email: inviteEmail,
-        name: inviteName,
-        role: "sales_rep",
-        totalOrders: 0,
-        joinDate: new Date().toLocaleDateString("zh-CN"),
-      };
-      setUsers((prev) => {
-        const updated = [...prev, newUser];
+      if (editingUser) {
+        // Edit existing user — admin-001 always keeps canEditContainers: true
+        const canEditContainers =
+          editingUser.id === "admin-001" ? true : form.canEditContainers;
+        const updatedUser: UserRecord = {
+          ...editingUser,
+          email: form.email,
+          name: form.name,
+          role: form.role,
+          canEditContainers,
+        };
+        const updated = users.map((u) =>
+          u.id === editingUser.id ? updatedUser : u,
+        );
         persistUsers(updated);
-        return updated;
-      });
-      setShowInvite(false);
-      setInviteEmail("");
-      setInviteName("");
-      toast.success(t("save", lang));
+        setUsers(updated);
+
+        // If we just edited the currently logged-in user, refresh their session
+        if (currentUser && currentUser.id === editingUser.id) {
+          const updatedAuthUser: AuthUser = {
+            id: updatedUser.id,
+            email: updatedUser.email,
+            name: updatedUser.name,
+            role: updatedUser.role,
+            canEditContainers: updatedUser.canEditContainers,
+          };
+          useAuthStore.getState().login(updatedAuthUser);
+        }
+
+        toast.success(t("save", lang));
+      } else {
+        // Add new user — use provided ID or generate one
+        const id = form.id.trim() || crypto.randomUUID();
+        // Attempt backend sync
+        if (isOnline) {
+          try {
+            const backendActor = await getBackendActor();
+            if (form.role === "sales_rep") {
+              await backendActor.inviteUser(
+                id,
+                form.email,
+                form.name,
+                currentUser?.id || null,
+              );
+            } else {
+              await backendActor.createAdminUser(id, form.email, form.name);
+            }
+          } catch {
+            // Backend sync failed — continue with local creation
+          }
+        }
+        // Set initial password = user ID, mustChange = true
+        setUserPassword(form.email, id, true);
+        const newUser: UserRecord = {
+          id,
+          email: form.email,
+          name: form.name,
+          role: form.role,
+          totalOrders: 0,
+          joinDate: new Date().toLocaleDateString("zh-CN"),
+          canEditContainers: form.canEditContainers,
+        };
+        setUsers((prev) => {
+          const updated = [...prev, newUser];
+          persistUsers(updated);
+          return updated;
+        });
+        toast.success(
+          lang === "english"
+            ? `User added. Initial password: ${id}`
+            : `用戶已新增。初始密碼：${id}`,
+        );
+      }
+      setShowModal(false);
     } catch {
       toast.error(t("loadError", lang));
     } finally {
@@ -123,45 +241,8 @@ export function UserManagement() {
     }
   };
 
-  const handleAddAdmin = async () => {
-    if (!adminEmail || !adminName) return;
-    setSaving(true);
-    try {
-      const id = crypto.randomUUID();
-      // Attempt backend sync, but don't block local creation on failure
-      if (isOnline) {
-        try {
-          const backendActor = await getBackendActor();
-          await backendActor.createAdminUser(id, adminEmail, adminName);
-        } catch {
-          // Backend sync failed -- continue with local creation
-        }
-      }
-      // Set initial password = user ID, mustChange = true
-      setUserPassword(adminEmail, id, true);
-      const newAdmin: UserRecord = {
-        id,
-        email: adminEmail,
-        name: adminName,
-        role: "admin",
-        totalOrders: 0,
-        joinDate: new Date().toLocaleDateString("zh-CN"),
-      };
-      setUsers((prev) => {
-        const updated = [...prev, newAdmin];
-        persistUsers(updated);
-        return updated;
-      });
-      setShowAddAdmin(false);
-      setAdminEmail("");
-      setAdminName("");
-      toast.success(t("save", lang));
-    } catch {
-      toast.error(t("loadError", lang));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const isAdding = !editingUser;
+  const isProtectedAdmin = editingUser?.id === "admin-001";
 
   return (
     <div className="min-h-screen">
@@ -181,8 +262,9 @@ export function UserManagement() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowInvite(true)}
+            onClick={() => openAdd("sales_rep")}
             className="gap-1.5 h-9"
+            data-ocid="user.invite_sales_rep.open_modal_button"
           >
             <UserPlus className="w-4 h-4" />
             <span className="hidden sm:inline">
@@ -191,8 +273,9 @@ export function UserManagement() {
           </Button>
           <Button
             size="sm"
-            onClick={() => setShowAddAdmin(true)}
+            onClick={() => openAdd("admin")}
             className="gap-1.5 h-9 bg-primary-600 hover:bg-primary-700 text-white"
+            data-ocid="user.add_admin.open_modal_button"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">{t("addAdmin", lang)}</span>
@@ -202,14 +285,17 @@ export function UserManagement() {
 
       <div className="p-4">
         {users.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div
+            className="flex flex-col items-center justify-center py-16 text-center"
+            data-ocid="user.empty_state"
+          >
             <Users className="w-16 h-16 text-muted-foreground opacity-30 mb-4" />
             <p className="text-muted-foreground">{t("noData", lang)}</p>
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
-              <Table>
+              <Table data-ocid="user.table">
                 <TableHeader>
                   <TableRow className="bg-secondary/50">
                     <TableHead className="text-xs font-semibold">
@@ -217,6 +303,9 @@ export function UserManagement() {
                     </TableHead>
                     <TableHead className="text-xs font-semibold hidden sm:table-cell">
                       {t("email", lang)}
+                    </TableHead>
+                    <TableHead className="text-xs font-semibold hidden md:table-cell">
+                      {lang === "english" ? "User ID" : "用戶 ID"}
                     </TableHead>
                     <TableHead className="text-xs font-semibold">
                       {t("role", lang)}
@@ -227,11 +316,17 @@ export function UserManagement() {
                     <TableHead className="text-xs font-semibold hidden lg:table-cell">
                       {t("joinDate", lang)}
                     </TableHead>
+                    <TableHead className="text-xs font-semibold text-right">
+                      {t("actions", lang)}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.id}>
+                  {users.map((user, index) => (
+                    <TableRow
+                      key={user.id}
+                      data-ocid={`user.item.${index + 1}`}
+                    >
                       <TableCell>
                         <div>
                           <p className="text-sm font-medium">{user.name}</p>
@@ -242,6 +337,11 @@ export function UserManagement() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
                         {user.email}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-mono hidden md:table-cell max-w-[140px]">
+                        <span className="truncate block" title={user.id}>
+                          {user.id}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <span
@@ -262,6 +362,31 @@ export function UserManagement() {
                       <TableCell className="text-sm text-muted-foreground hidden lg:table-cell">
                         {user.joinDate}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {currentUser?.role === "admin" && (
+                            <button
+                              type="button"
+                              onClick={() => openEdit(user)}
+                              data-ocid={`user.edit_button.${index + 1}`}
+                              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {currentUser?.role === "admin" &&
+                            user.id !== "admin-001" && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(user)}
+                                data-ocid={`user.delete_button.${index + 1}`}
+                                className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors touch-manipulation"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -271,99 +396,186 @@ export function UserManagement() {
         )}
       </div>
 
-      {/* Invite Sales Rep Modal */}
-      <Dialog
-        open={showInvite}
-        onOpenChange={(o) => !o && setShowInvite(false)}
+      {/* Delete User Confirmation */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
       >
-        <DialogContent className="w-[95vw] max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>{t("inviteSalesRep", lang)}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label className="text-sm">{t("fullName", lang)}</Label>
-              <Input
-                value={inviteName}
-                onChange={(e) => setInviteName(e.target.value)}
-                placeholder="姓名"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">{t("email", lang)}</Label>
-              <Input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="sales@company.com"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+        <AlertDialogContent data-ocid="user.delete.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {lang === "english" ? "Delete User" : "刪除用戶"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
               {lang === "english"
-                ? "Initial password: User ID (shown after saving)"
-                : "初始密碼：用戶 ID（保存後顯示）"}
-            </p>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowInvite(false)}>
-              {t("cancel", lang)}
-            </Button>
-            <Button
-              onClick={handleInvite}
-              disabled={saving || !inviteEmail || !inviteName}
-              className="bg-primary-600 hover:bg-primary-700 text-white"
+                ? `Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`
+                : `確定要刪除「${deleteTarget?.name}」嗎？此操作無法撤銷。`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-ocid="user.delete.cancel_button"
+              onClick={() => setDeleteTarget(null)}
             >
-              {saving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                t("save", lang)
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              {lang === "english" ? "Cancel" : "取消"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-ocid="user.delete.confirm_button"
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {lang === "english" ? "Delete" : "刪除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      {/* Add Admin Modal */}
-      <Dialog
-        open={showAddAdmin}
-        onOpenChange={(o) => !o && setShowAddAdmin(false)}
-      >
-        <DialogContent className="w-[95vw] max-w-sm rounded-2xl">
+      {/* Add / Edit User Modal */}
+      <Dialog open={showModal} onOpenChange={(o) => !o && setShowModal(false)}>
+        <DialogContent
+          className="w-[95vw] max-w-sm rounded-2xl"
+          data-ocid="user.dialog"
+        >
           <DialogHeader>
-            <DialogTitle>{t("addAdmin", lang)}</DialogTitle>
+            <DialogTitle>
+              {editingUser
+                ? lang === "english"
+                  ? "Edit User"
+                  : "編輯用戶"
+                : form.role === "sales_rep"
+                  ? t("inviteSalesRep", lang)
+                  : t("addAdmin", lang)}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {/* User ID — editable when adding, greyed out when editing */}
+            <div className="space-y-1.5">
+              <Label className="text-sm">
+                {lang === "english" ? "User ID" : "用戶 ID"}
+              </Label>
+              <Input
+                data-ocid="user.id.input"
+                value={form.id}
+                onChange={(e) =>
+                  isAdding && !isProtectedAdmin
+                    ? setForm((f) => ({ ...f, id: e.target.value }))
+                    : undefined
+                }
+                placeholder={
+                  isAdding
+                    ? lang === "english"
+                      ? "Leave blank to auto-generate"
+                      : "留空則自動產生"
+                    : undefined
+                }
+                disabled={!isAdding || isProtectedAdmin}
+                className={
+                  !isAdding || isProtectedAdmin
+                    ? "bg-secondary text-muted-foreground cursor-not-allowed"
+                    : ""
+                }
+              />
+              {isAdding && (
+                <p className="text-xs text-muted-foreground">
+                  {lang === "english"
+                    ? "This will also be the initial password."
+                    : "此 ID 亦為初始登入密碼。"}
+                </p>
+              )}
+            </div>
+
             <div className="space-y-1.5">
               <Label className="text-sm">{t("fullName", lang)}</Label>
               <Input
-                value={adminName}
-                onChange={(e) => setAdminName(e.target.value)}
+                data-ocid="user.name.input"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, name: e.target.value }))
+                }
                 placeholder="姓名"
+                disabled={isProtectedAdmin}
               />
             </div>
             <div className="space-y-1.5">
               <Label className="text-sm">{t("email", lang)}</Label>
               <Input
+                data-ocid="user.email.input"
                 type="email"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                placeholder="admin@company.com"
+                value={form.email}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, email: e.target.value }))
+                }
+                placeholder="user@company.com"
+                disabled={isProtectedAdmin}
               />
             </div>
-            <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
-              {lang === "english"
-                ? "Initial password: User ID (shown after saving)"
-                : "初始密碼：用戶 ID（保存後顯示）"}
-            </p>
+
+            {/* Role selector — only visible when adding */}
+            {isAdding && (
+              <div className="space-y-1.5">
+                <Label className="text-sm">{t("role", lang)}</Label>
+                <Select
+                  value={form.role}
+                  onValueChange={(v) =>
+                    setForm((f) => ({
+                      ...f,
+                      role: v as "admin" | "sales_rep",
+                    }))
+                  }
+                >
+                  <SelectTrigger data-ocid="user.role.select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sales_rep">
+                      {t("salesRepRole", lang)}
+                    </SelectItem>
+                    <SelectItem value="admin">
+                      {t("adminRole", lang)}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Container Editor permission toggle */}
+            <div className="flex items-center gap-3 py-1">
+              <Switch
+                data-ocid="user.container_editor.switch"
+                checked={isProtectedAdmin ? true : form.canEditContainers}
+                onCheckedChange={(checked) => {
+                  if (!isProtectedAdmin) {
+                    setForm((f) => ({ ...f, canEditContainers: checked }));
+                  }
+                }}
+                disabled={isProtectedAdmin}
+              />
+              <Label className="text-sm cursor-pointer">
+                {lang === "english" ? "Container Editor" : "貨櫃編輯權限"}
+              </Label>
+            </div>
+
+            {isProtectedAdmin && (
+              <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+                {lang === "english"
+                  ? "The primary admin account cannot be modified here."
+                  : "主要管理員帳戶無法在此修改。"}
+              </p>
+            )}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowAddAdmin(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowModal(false)}
+              data-ocid="user.cancel_button"
+            >
               {t("cancel", lang)}
             </Button>
             <Button
-              onClick={handleAddAdmin}
-              disabled={saving || !adminEmail || !adminName}
+              onClick={handleSave}
+              disabled={saving || !form.email || !form.name || isProtectedAdmin}
               className="bg-primary-600 hover:bg-primary-700 text-white"
+              data-ocid="user.save_button"
             >
               {saving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

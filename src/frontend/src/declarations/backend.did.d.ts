@@ -10,6 +10,26 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface Container {
+  'id' : string,
+  'eta' : string,
+  'shipper' : string,
+  'status' : string,
+  'entryPort' : string,
+  'containerNo' : string,
+  'createdAt' : bigint,
+  'updatedAt' : bigint,
+  'notes' : string,
+}
+export interface ContainerItem {
+  'id' : string,
+  'bbd' : string,
+  'qty' : bigint,
+  'containerId' : string,
+  'productSku' : string,
+  'sellingPrice' : number,
+  'productName' : string,
+}
 export type ExternalBlob = Uint8Array;
 export interface Order {
   'id' : string,
@@ -74,7 +94,12 @@ export interface _SERVICE {
     _CaffeineStorageRefillResult
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
+  'addContainerItem' : ActorMethod<[ContainerItem], undefined>,
   'createAdminUser' : ActorMethod<[string, string, string], undefined>,
+  'createContainer' : ActorMethod<
+    [string, string, string, string, string, string, string],
+    undefined
+  >,
   'createProduct' : ActorMethod<
     [
       string,
@@ -88,6 +113,7 @@ export interface _SERVICE {
     ],
     undefined
   >,
+  'deleteContainer' : ActorMethod<[string], undefined>,
   'getAdminStats' : ActorMethod<
     [],
     {
@@ -100,7 +126,10 @@ export interface _SERVICE {
       'syncedOrders' : bigint,
     }
   >,
+  'getAllContainers' : ActorMethod<[], Array<Container>>,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
+  'getContainer' : ActorMethod<[string], [] | [Container]>,
+  'getContainerItems' : ActorMethod<[string], Array<ContainerItem>>,
   'getOrdersByUser' : ActorMethod<[string], Array<Order>>,
   'getProductBySku' : ActorMethod<[string], Product>,
   'getProductImage' : ActorMethod<[string], [] | [ExternalBlob]>,
@@ -119,9 +148,15 @@ export interface _SERVICE {
     [string, string, string, [] | [string]],
     undefined
   >,
+  'removeContainerItem' : ActorMethod<[string], undefined>,
   'seedData' : ActorMethod<[], undefined>,
   'submitOrder' : ActorMethod<[Order, Array<OrderItem>], undefined>,
   'syncOrder' : ActorMethod<[string], undefined>,
+  'updateContainer' : ActorMethod<
+    [string, string, string, string, string, string, string],
+    undefined
+  >,
+  'updateContainerItem' : ActorMethod<[ContainerItem], undefined>,
   'updateProductImage' : ActorMethod<[string, ExternalBlob], undefined>,
   'upsertProductBySku' : ActorMethod<[Product], undefined>,
 }

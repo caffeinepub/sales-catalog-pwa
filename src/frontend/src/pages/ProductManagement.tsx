@@ -44,6 +44,7 @@ import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
 import { uploadBytesToBlob } from "../lib/blobUpload";
 import {
+  getAllCategories,
   getAllExtendedProducts,
   getProductsFromCache,
   saveAllExtendedProducts,
@@ -54,7 +55,7 @@ import { resizeImageToMaxWidth } from "../lib/imageUpload";
 import { SAMPLE_PRODUCTS } from "../lib/sampleData";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
-import type { ExtendedProduct } from "../types";
+import type { Category, ExtendedProduct } from "../types";
 
 interface ProductForm {
   id: string;
@@ -99,6 +100,7 @@ export function ProductManagement() {
   const { lang } = useLanguageStore();
   const isOnline = useOnlineStatus();
   const [products, setProducts] = useState<ExtendedProduct[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddEdit, setShowAddEdit] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
@@ -107,6 +109,13 @@ export function ProductManagement() {
   );
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+
+  // Filter & pagination state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [filterLetter, setFilterLetter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
 
   // Image upload state
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -132,8 +141,13 @@ export function ProductManagement() {
   const loadProducts = async () => {
     setLoading(true);
     try {
-      // Try extended_products store first (has all extra fields)
-      const extended = await getAllExtendedProducts();
+      // Load categories and products in parallel
+      const [extended, cats] = await Promise.all([
+        getAllExtendedProducts(),
+        getAllCategories(),
+      ]);
+      setCategories(cats);
+
       if (extended.length > 0) {
         setProducts(extended);
       } else {
@@ -171,6 +185,43 @@ export function ProductManagement() {
   useEffect(() => {
     loadProducts();
   }, []);
+
+  // Reset page when filters change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional page reset on filter change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filterCategory, filterLetter]);
+
+  // Computed filtered + sorted + paginated products
+  const filtered = products
+    .filter((p) => {
+      const matchesSearch =
+        !searchQuery ||
+        p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.nameCnTraditional.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.nameEn ?? "").toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory =
+        filterCategory === "all" ||
+        p.categoryId === filterCategory ||
+        p.category === filterCategory;
+      const matchesLetter =
+        !filterLetter || p.sku.toUpperCase().startsWith(filterLetter);
+      return matchesSearch && matchesCategory && matchesLetter;
+    })
+    .sort((a, b) => a.sku.localeCompare(b.sku));
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const paginated = filtered.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  );
+
+  // Helper to build category label for dropdown
+  const getCategoryLabel = (cat: Category): string => {
+    const prefix = cat.subCat ? "-- " : "";
+    if (lang === "english") return `${prefix}${cat.catEn}`;
+    return `${prefix}${cat.catCn}`;
+  };
 
   const resetImageState = () => {
     setImageFile(null);
@@ -303,20 +354,24 @@ export function ProductManagement() {
       };
 
       if (isOnline) {
-        const backendActor = await getBackendActor();
-        // Save base fields to backend (no imageBlob here — handled separately via updateProductImage)
-        await backendActor.upsertProductBySku({
-          id: product.id,
-          sku: product.sku,
-          nameCnSimplified: product.nameCnSimplified,
-          nameCnTraditional: product.nameCnTraditional,
-          category: product.category,
-          price: product.price,
-          stockStatus: product.stockStatus,
-          imageBlob: undefined,
-          createdAt: product.createdAt,
-          updatedAt: product.updatedAt,
-        });
+        try {
+          const backendActor = await getBackendActor();
+          // Save base fields to backend (no imageBlob here — handled separately via updateProductImage)
+          await backendActor.upsertProductBySku({
+            id: product.id,
+            sku: product.sku,
+            nameCnSimplified: product.nameCnSimplified,
+            nameCnTraditional: product.nameCnTraditional,
+            category: product.category,
+            price: product.price,
+            stockStatus: product.stockStatus,
+            imageBlob: undefined,
+            createdAt: product.createdAt,
+            updatedAt: product.updatedAt,
+          });
+        } catch {
+          // Backend sync failed — continue with local save
+        }
       }
 
       // Update extended_products store
@@ -501,19 +556,23 @@ export function ProductManagement() {
             updatedAt: now,
           };
           if (isOnline) {
-            const backendActor = await getBackendActor();
-            await backendActor.upsertProductBySku({
-              id: product.id,
-              sku: product.sku,
-              nameCnSimplified: product.nameCnSimplified,
-              nameCnTraditional: product.nameCnTraditional,
-              category: product.category,
-              price: product.price,
-              stockStatus: product.stockStatus,
-              imageBlob: undefined,
-              createdAt: product.createdAt,
-              updatedAt: product.updatedAt,
-            });
+            try {
+              const backendActor = await getBackendActor();
+              await backendActor.upsertProductBySku({
+                id: product.id,
+                sku: product.sku,
+                nameCnSimplified: product.nameCnSimplified,
+                nameCnTraditional: product.nameCnTraditional,
+                category: product.category,
+                price: product.price,
+                stockStatus: product.stockStatus,
+                imageBlob: undefined,
+                createdAt: product.createdAt,
+                updatedAt: product.updatedAt,
+              });
+            } catch {
+              // Backend sync failed — continue with local save
+            }
           }
           const idx = updatedList.findIndex((p) => p.sku === product.sku);
           if (idx >= 0) {
@@ -605,7 +664,38 @@ export function ProductManagement() {
         </div>
       </div>
 
-      <div className="p-4">
+      {/* Search + Category Filter Bar */}
+      <div className="px-4 pt-4 pb-2 flex flex-col sm:flex-row gap-2">
+        <Input
+          data-ocid="product.search_input"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={
+            lang === "english" ? "Search by SKU or name…" : "按貨號或名稱搜尋…"
+          }
+          className="flex-1"
+        />
+        <Select value={filterCategory} onValueChange={setFilterCategory}>
+          <SelectTrigger
+            data-ocid="product.category_filter.select"
+            className="w-full sm:w-52"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">
+              {lang === "english" ? "All Categories" : "所有類別"}
+            </SelectItem>
+            {categories.map((cat) => (
+              <SelectItem key={cat.id} value={cat.catId}>
+                {getCategoryLabel(cat)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="px-4 pb-4">
         {loading ? (
           <div
             className="flex justify-center py-16"
@@ -613,136 +703,255 @@ export function ProductManagement() {
           >
             <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
           </div>
-        ) : products.length === 0 ? (
-          <div
-            className="flex flex-col items-center justify-center py-16 text-center"
-            data-ocid="product.empty_state"
-          >
-            <Package className="w-16 h-16 text-muted-foreground opacity-30 mb-4" />
-            <p className="text-muted-foreground">{t("noData", lang)}</p>
-          </div>
         ) : (
-          <div className="bg-white rounded-xl border border-border overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-secondary/50">
-                    <TableHead className="text-xs font-semibold">
-                      {t("sku", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold">
-                      {t("nameCnTraditional", lang)} / {t("nameEn", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                      {t("brand", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold hidden sm:table-cell">
-                      {t("category", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold hidden md:table-cell">
-                      {t("stock", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold text-right">
-                      {t("price", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold hidden lg:table-cell">
-                      {t("stockStatus", lang)}
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold hidden xl:table-cell">
-                      Image_FileName
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold text-right">
-                      {t("actions", lang)}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {products.map((product, index) => (
-                    <TableRow
-                      key={product.id}
-                      data-ocid={`product.item.${index + 1}`}
+          <>
+            {filtered.length === 0 ? (
+              <div
+                className="flex flex-col items-center justify-center py-16 text-center"
+                data-ocid="product.empty_state"
+              >
+                <Package className="w-16 h-16 text-muted-foreground opacity-30 mb-4" />
+                <p className="text-muted-foreground">{t("noData", lang)}</p>
+              </div>
+            ) : (
+              <>
+                <div className="bg-white rounded-xl border border-border overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-secondary/50">
+                          <TableHead className="text-xs font-semibold">
+                            {t("sku", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold">
+                            {t("nameCnTraditional", lang)} / {t("nameEn", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold hidden sm:table-cell">
+                            {t("brand", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold hidden sm:table-cell">
+                            {t("category", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold hidden md:table-cell">
+                            {t("stock", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold text-right">
+                            {t("price", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold hidden lg:table-cell">
+                            {t("stockStatus", lang)}
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold hidden xl:table-cell">
+                            Image_FileName
+                          </TableHead>
+                          <TableHead className="text-xs font-semibold text-right">
+                            {t("actions", lang)}
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginated.map((product, index) => (
+                          <TableRow
+                            key={product.id}
+                            data-ocid={`product.item.${index + 1}`}
+                          >
+                            <TableCell className="text-xs font-mono text-muted-foreground">
+                              {product.sku}
+                            </TableCell>
+                            <TableCell className="max-w-[140px]">
+                              <p className="text-sm font-medium truncate">
+                                {product.nameCnTraditional}
+                              </p>
+                              {product.nameEn && (
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {product.nameEn}
+                                </p>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                              {product.brand || "—"}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
+                              {product.category}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground hidden md:table-cell">
+                              {product.stock ?? 0}
+                            </TableCell>
+                            <TableCell className="text-right text-sm font-semibold">
+                              £{product.price}
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  product.stockStatus === "in_stock"
+                                    ? "bg-green-50 text-green-700"
+                                    : product.stockStatus === "low_stock"
+                                      ? "bg-amber-50 text-amber-700"
+                                      : "bg-red-50 text-red-700"
+                                }`}
+                              >
+                                {product.stockStatus === "in_stock"
+                                  ? t("inStock", lang)
+                                  : product.stockStatus === "low_stock"
+                                    ? t("lowStock", lang)
+                                    : t("outOfStock", lang)}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground hidden xl:table-cell max-w-[120px]">
+                              <span
+                                className="truncate block"
+                                title={product.imageFileName}
+                              >
+                                {product.imageFileName || "—"}
+                              </span>
+                              {product.imageBlobUrl && (
+                                <span className="text-green-600 text-[10px]">
+                                  ✓ Image
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit(product)}
+                                  data-ocid={`product.edit_button.${index + 1}`}
+                                  className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(product)}
+                                  data-ocid={`product.delete_button.${index + 1}`}
+                                  className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors touch-manipulation"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-1 mt-4 flex-wrap">
+                    <button
+                      type="button"
+                      data-ocid="product.pagination_prev"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                      <TableCell className="text-xs font-mono text-muted-foreground">
-                        {product.sku}
-                      </TableCell>
-                      <TableCell className="max-w-[140px]">
-                        <p className="text-sm font-medium truncate">
-                          {product.nameCnTraditional}
-                        </p>
-                        {product.nameEn && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {product.nameEn}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                        {product.brand || "—"}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">
-                        {product.category}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground hidden md:table-cell">
-                        {product.stock ?? 0}
-                      </TableCell>
-                      <TableCell className="text-right text-sm font-semibold">
-                        £{product.price}
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            product.stockStatus === "in_stock"
-                              ? "bg-green-50 text-green-700"
-                              : product.stockStatus === "low_stock"
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {product.stockStatus === "in_stock"
-                            ? t("inStock", lang)
-                            : product.stockStatus === "low_stock"
-                              ? t("lowStock", lang)
-                              : t("outOfStock", lang)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground hidden xl:table-cell max-w-[120px]">
-                        <span
-                          className="truncate block"
-                          title={product.imageFileName}
-                        >
-                          {product.imageFileName || "—"}
-                        </span>
-                        {product.imageBlobUrl && (
-                          <span className="text-green-600 text-[10px]">
-                            ✓ Image
+                      ‹
+                    </button>
+                    {(() => {
+                      const pages: (number | "…")[] = [];
+                      if (totalPages <= 7) {
+                        for (let i = 1; i <= totalPages; i++) pages.push(i);
+                      } else {
+                        pages.push(1);
+                        if (currentPage > 3) pages.push("…");
+                        for (
+                          let i = Math.max(2, currentPage - 1);
+                          i <= Math.min(totalPages - 1, currentPage + 1);
+                          i++
+                        ) {
+                          pages.push(i);
+                        }
+                        if (currentPage < totalPages - 2) pages.push("…");
+                        pages.push(totalPages);
+                      }
+                      return pages.map((p, i) =>
+                        p === "…" ? (
+                          <span
+                            // biome-ignore lint/suspicious/noArrayIndexKey: static ellipsis positions
+                            key={`ellipsis-${i}`}
+                            className="px-2 py-1.5 text-sm text-muted-foreground"
+                          >
+                            …
                           </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
+                        ) : (
                           <button
                             type="button"
-                            onClick={() => openEdit(product)}
-                            data-ocid={`product.edit_button.${index + 1}`}
-                            className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
+                            key={p}
+                            data-ocid={`product.page_button.${p}`}
+                            onClick={() => setCurrentPage(p)}
+                            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                              currentPage === p
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-border hover:bg-secondary"
+                            }`}
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            {p}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(product)}
-                            data-ocid={`product.delete_button.${index + 1}`}
-                            className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors touch-manipulation"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        ),
+                      );
+                    })()}
+                    <button
+                      type="button"
+                      data-ocid="product.pagination_next"
+                      onClick={() =>
+                        setCurrentPage((p) => Math.min(totalPages, p + 1))
+                      }
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Alphabet Strip — always visible */}
+            <div className="mt-4 flex flex-wrap items-center gap-1 justify-center">
+              <button
+                type="button"
+                data-ocid="product.alpha_filter_all.button"
+                onClick={() => setFilterLetter("")}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
+                  !filterLetter
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border hover:bg-secondary text-muted-foreground"
+                }`}
+              >
+                All
+              </button>
+              {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => (
+                <button
+                  type="button"
+                  key={letter}
+                  data-ocid={`product.alpha_filter.${letter.toLowerCase()}`}
+                  onClick={() =>
+                    setFilterLetter((prev) => (prev === letter ? "" : letter))
+                  }
+                  className={`w-7 h-7 text-xs font-medium rounded-md border transition-colors ${
+                    filterLetter === letter
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border hover:bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {letter}
+                </button>
+              ))}
             </div>
-          </div>
+
+            {/* Page info — always visible */}
+            <p className="text-xs text-center text-muted-foreground mt-2">
+              {filtered.length === 0
+                ? lang === "english"
+                  ? "No products found"
+                  : "找不到產品"
+                : lang === "english"
+                  ? `Showing ${(currentPage - 1) * ITEMS_PER_PAGE + 1}–${Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length} products`
+                  : `顯示第 ${(currentPage - 1) * ITEMS_PER_PAGE + 1}–${Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} 項，共 ${filtered.length} 項`}
+            </p>
+          </>
         )}
       </div>
 
@@ -766,31 +975,32 @@ export function ProductManagement() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {/* Product ID — read-only */}
+            <div className="space-y-1.5">
+              <Label className="text-sm">
+                {lang === "english" ? "Product ID" : "產品 ID"}
+              </Label>
+              <Input
+                data-ocid="product.id.input"
+                value={editingProduct?.id || ""}
+                placeholder={lang === "english" ? "Auto-generated" : "自動產生"}
+                disabled
+                className="bg-secondary text-muted-foreground cursor-not-allowed"
+              />
+            </div>
+
             {/* Core Fields */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-sm">{t("sku", lang)}</Label>
-                <Input
-                  data-ocid="product.input"
-                  value={form.sku}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, sku: e.target.value }))
-                  }
-                  placeholder="ELEC-001"
-                  disabled={!!editingProduct}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">{t("categoryId", lang)}</Label>
-                <Input
-                  data-ocid="product.category_id.input"
-                  value={form.categoryId}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, categoryId: e.target.value }))
-                  }
-                  placeholder="CAT-ELEC"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">{t("sku", lang)}</Label>
+              <Input
+                data-ocid="product.input"
+                value={form.sku}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, sku: e.target.value }))
+                }
+                placeholder="ELEC-001"
+                disabled={!!editingProduct}
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -831,14 +1041,49 @@ export function ProductManagement() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm">{t("category", lang)}</Label>
-                <Input
-                  data-ocid="product.category.input"
-                  value={form.category}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, category: e.target.value }))
-                  }
-                  placeholder="電子產品"
-                />
+                {/* Category_ID is hidden — set programmatically from dropdown */}
+                <Select
+                  value={form.categoryId || form.category || ""}
+                  onValueChange={(catId) => {
+                    const cat = categories.find((c) => c.catId === catId);
+                    if (cat) {
+                      setForm((f) => ({
+                        ...f,
+                        category: cat.catEn,
+                        categoryId: cat.catId,
+                      }));
+                    }
+                  }}
+                >
+                  <SelectTrigger data-ocid="product.category.select">
+                    <SelectValue
+                      placeholder={
+                        categories.length === 0
+                          ? lang === "english"
+                            ? "No categories available"
+                            : "暫無類別"
+                          : lang === "english"
+                            ? "Select category"
+                            : "選擇類別"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.length === 0 ? (
+                      <SelectItem value="_none" disabled>
+                        {lang === "english"
+                          ? "No categories available"
+                          : "暫無類別"}
+                      </SelectItem>
+                    ) : (
+                      categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.catId}>
+                          {getCategoryLabel(cat)}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

@@ -196,8 +196,8 @@ function buildTreeJSON(
  * return the raw CBOR bytes as soon as readState provides them. The storage
  * gateway does its own verification server-side.
  */
+// biome-ignore lint/suspicious/noExplicitAny: private IC agent API
 async function pollForCertificate(
-  // biome-ignore lint/suspicious/noExplicitAny: private IC agent API
   agent: any,
   canisterId: string,
   requestId: Uint8Array,

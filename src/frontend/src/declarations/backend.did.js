@@ -19,7 +19,27 @@ export const _CaffeineStorageRefillResult = IDL.Record({
   'success' : IDL.Opt(IDL.Bool),
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
+export const ContainerItem = IDL.Record({
+  'id' : IDL.Text,
+  'bbd' : IDL.Text,
+  'qty' : IDL.Nat,
+  'containerId' : IDL.Text,
+  'productSku' : IDL.Text,
+  'sellingPrice' : IDL.Float64,
+  'productName' : IDL.Text,
+});
 export const ExternalBlob = IDL.Vec(IDL.Nat8);
+export const Container = IDL.Record({
+  'id' : IDL.Text,
+  'eta' : IDL.Text,
+  'shipper' : IDL.Text,
+  'status' : IDL.Text,
+  'entryPort' : IDL.Text,
+  'containerNo' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'updatedAt' : IDL.Int,
+  'notes' : IDL.Text,
+});
 export const Order = IDL.Record({
   'id' : IDL.Text,
   'customerName' : IDL.Text,
@@ -86,7 +106,13 @@ export const idlService = IDL.Service({
       [],
     ),
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+  'addContainerItem' : IDL.Func([ContainerItem], [], []),
   'createAdminUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'createContainer' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [],
+      [],
+    ),
   'createProduct' : IDL.Func(
       [
         IDL.Text,
@@ -101,6 +127,7 @@ export const idlService = IDL.Service({
       [],
       [],
     ),
+  'deleteContainer' : IDL.Func([IDL.Text], [], []),
   'getAdminStats' : IDL.Func(
       [],
       [
@@ -116,7 +143,14 @@ export const idlService = IDL.Service({
       ],
       ['query'],
     ),
+  'getAllContainers' : IDL.Func([], [IDL.Vec(Container)], ['query']),
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
+  'getContainer' : IDL.Func([IDL.Text], [IDL.Opt(Container)], ['query']),
+  'getContainerItems' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(ContainerItem)],
+      ['query'],
+    ),
   'getOrdersByUser' : IDL.Func([IDL.Text], [IDL.Vec(Order)], ['query']),
   'getProductBySku' : IDL.Func([IDL.Text], [Product], ['query']),
   'getProductImage' : IDL.Func([IDL.Text], [IDL.Opt(ExternalBlob)], ['query']),
@@ -139,9 +173,16 @@ export const idlService = IDL.Service({
       [],
       [],
     ),
+  'removeContainerItem' : IDL.Func([IDL.Text], [], []),
   'seedData' : IDL.Func([], [], []),
   'submitOrder' : IDL.Func([Order, IDL.Vec(OrderItem)], [], []),
   'syncOrder' : IDL.Func([IDL.Text], [], []),
+  'updateContainer' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+      [],
+      [],
+    ),
+  'updateContainerItem' : IDL.Func([ContainerItem], [], []),
   'updateProductImage' : IDL.Func([IDL.Text, ExternalBlob], [], []),
   'upsertProductBySku' : IDL.Func([Product], [], []),
 });
@@ -160,7 +201,27 @@ export const idlFactory = ({ IDL }) => {
     'success' : IDL.Opt(IDL.Bool),
     'topped_up_amount' : IDL.Opt(IDL.Nat),
   });
+  const ContainerItem = IDL.Record({
+    'id' : IDL.Text,
+    'bbd' : IDL.Text,
+    'qty' : IDL.Nat,
+    'containerId' : IDL.Text,
+    'productSku' : IDL.Text,
+    'sellingPrice' : IDL.Float64,
+    'productName' : IDL.Text,
+  });
   const ExternalBlob = IDL.Vec(IDL.Nat8);
+  const Container = IDL.Record({
+    'id' : IDL.Text,
+    'eta' : IDL.Text,
+    'shipper' : IDL.Text,
+    'status' : IDL.Text,
+    'entryPort' : IDL.Text,
+    'containerNo' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'updatedAt' : IDL.Int,
+    'notes' : IDL.Text,
+  });
   const Order = IDL.Record({
     'id' : IDL.Text,
     'customerName' : IDL.Text,
@@ -224,7 +285,13 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+    'addContainerItem' : IDL.Func([ContainerItem], [], []),
     'createAdminUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'createContainer' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [],
+        [],
+      ),
     'createProduct' : IDL.Func(
         [
           IDL.Text,
@@ -239,6 +306,7 @@ export const idlFactory = ({ IDL }) => {
         [],
         [],
       ),
+    'deleteContainer' : IDL.Func([IDL.Text], [], []),
     'getAdminStats' : IDL.Func(
         [],
         [
@@ -254,7 +322,14 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'getAllContainers' : IDL.Func([], [IDL.Vec(Container)], ['query']),
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
+    'getContainer' : IDL.Func([IDL.Text], [IDL.Opt(Container)], ['query']),
+    'getContainerItems' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(ContainerItem)],
+        ['query'],
+      ),
     'getOrdersByUser' : IDL.Func([IDL.Text], [IDL.Vec(Order)], ['query']),
     'getProductBySku' : IDL.Func([IDL.Text], [Product], ['query']),
     'getProductImage' : IDL.Func(
@@ -281,9 +356,16 @@ export const idlFactory = ({ IDL }) => {
         [],
         [],
       ),
+    'removeContainerItem' : IDL.Func([IDL.Text], [], []),
     'seedData' : IDL.Func([], [], []),
     'submitOrder' : IDL.Func([Order, IDL.Vec(OrderItem)], [], []),
     'syncOrder' : IDL.Func([IDL.Text], [], []),
+    'updateContainer' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
+        [],
+        [],
+      ),
+    'updateContainerItem' : IDL.Func([ContainerItem], [], []),
     'updateProductImage' : IDL.Func([IDL.Text, ExternalBlob], [], []),
     'upsertProductBySku' : IDL.Func([Product], [], []),
   });

@@ -1,20 +1,20 @@
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
+import Array "mo:core/Array";
 import Order "mo:core/Order";
 import Text "mo:core/Text";
 import Float "mo:core/Float";
 import Runtime "mo:core/Runtime";
 import Iter "mo:core/Iter";
-import Array "mo:core/Array";
 import Time "mo:core/Time";
 import Storage "blob-storage/Storage";
 import MixinStorage "blob-storage/Mixin";
 
 
-// Use the migration module for upgrades.
 
 actor {
-  // Types
+  // TYPES
+
   type UserProfile = {
     id : Text;
     email : Text;
@@ -77,6 +77,28 @@ actor {
     #salesRep;
   };
 
+  type Container = {
+    id : Text;
+    containerNo : Text;
+    shipper : Text;
+    eta : Text;
+    entryPort : Text;
+    status : Text;
+    notes : Text;
+    createdAt : Int;
+    updatedAt : Int;
+  };
+
+  type ContainerItem = {
+    id : Text;
+    containerId : Text;
+    productSku : Text;
+    productName : Text;
+    qty : Nat;
+    sellingPrice : Float;
+    bbd : Text;
+  };
+
   module Product {
     public func compare(a : Product, b : Product) : Order.Order {
       Text.compare(a.id, b.id);
@@ -87,16 +109,18 @@ actor {
     };
   };
 
-  // Data Stores
+  // DATA STORES
   let users = Map.empty<Text, UserProfile>();
   let products = Map.empty<Text, Product>();
   let customers = Map.empty<Text, Customer>();
   let orders = Map.empty<Text, Order>();
   let orderItems = Map.empty<Text, OrderItem>();
+  let containers = Map.empty<Text, Container>();
+  let containerItems = Map.empty<Text, ContainerItem>();
 
   include MixinStorage();
 
-  // Product Management
+  // PRODUCT MANAGEMENT
   public shared ({ caller }) func createProduct(
     id : Text,
     sku : Text,
@@ -143,7 +167,6 @@ actor {
     };
   };
 
-  // Additional Product Queries
   public query ({ caller }) func getProductBySku(sku : Text) : async Product {
     switch (products.get(sku)) {
       case (null) { Runtime.trap("Product does not exist") };
@@ -172,7 +195,7 @@ actor {
     };
   };
 
-  // User Profile Management (untouched from initial version)
+  // USER PROFILE MANAGEMENT
   public shared ({ caller }) func inviteUser(id : Text, email : Text, fullName : Text, invitedBy : ?Text) : async () {
     let user : UserProfile = {
       id;
@@ -219,7 +242,7 @@ actor {
     };
   };
 
-  // Order Management (untouched from initial version)
+  // ORDER MANAGEMENT
   public shared ({ caller }) func submitOrder(order : Order, items : [OrderItem]) : async () {
     let totalAmount = items.foldLeft(0.0, func(acc, item) { acc + item.subtotal });
     let updatedOrder : Order = {
@@ -257,7 +280,7 @@ actor {
     orders.values().toArray();
   };
 
-  // Statistics
+  // STATISTICS
   public query ({ caller }) func getTotalCounts() : async {
     products : Nat;
     customers : Nat;
@@ -272,7 +295,6 @@ actor {
     };
   };
 
-  // Admin stats
   public query ({ caller }) func getAdminStats() : async {
     totalProducts : Nat;
     totalCustomers : Nat;
@@ -283,7 +305,6 @@ actor {
     syncedOrders : Nat;
   } {
     let allOrders = orders.values().toArray();
-
     let pendingCount = allOrders.filter(func(o) { o.status == "pending" }).size();
     let submittedCount = allOrders.filter(func(o) { o.status == "submitted" }).size();
     let syncedCount = allOrders.filter(func(o) { o.status == "synced" }).size();
@@ -299,12 +320,10 @@ actor {
     };
   };
 
-  // Data Seeding
+  // DATA SEEDING
   public shared ({ caller }) func seedData() : async () {
-    // Seed admin user
     await createAdminUser("admin-user-id", "admin@example.com", "Admin User");
 
-    // Seed products
     let sampleProducts = [
       {
         id = "1";
@@ -336,7 +355,6 @@ actor {
       products.add(product.sku, product);
     };
 
-    // Seed customers
     let sampleCustomers = [
       {
         id = "1";
@@ -360,6 +378,101 @@ actor {
 
     for (customer in sampleCustomers.values()) {
       customers.add(customer.id, customer);
+    };
+  };
+
+  // CONTAINER MANAGEMENT - NEW
+
+  public shared ({ caller }) func createContainer(
+    id : Text,
+    containerNo : Text,
+    shipper : Text,
+    eta : Text,
+    entryPort : Text,
+    status : Text,
+    notes : Text
+  ) : async () {
+    let container : Container = {
+      id;
+      containerNo;
+      shipper;
+      eta;
+      entryPort;
+      status;
+      notes;
+      createdAt = Time.now();
+      updatedAt = Time.now();
+    };
+    containers.add(id, container);
+  };
+
+  public shared ({ caller }) func updateContainer(
+    id : Text,
+    containerNo : Text,
+    shipper : Text,
+    eta : Text,
+    entryPort : Text,
+    status : Text,
+    notes : Text
+  ) : async () {
+    switch (containers.get(id)) {
+      case (null) { Runtime.trap("Container does not exist") };
+      case (?existingContainer) {
+        let updatedContainer = {
+          existingContainer with
+          containerNo;
+          shipper;
+          eta;
+          entryPort;
+          status;
+          notes;
+          updatedAt = Time.now();
+        };
+        containers.add(id, updatedContainer);
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteContainer(id : Text) : async () {
+    let existed = containers.containsKey(id);
+    containers.remove(id);
+    if (not existed) {
+      Runtime.trap("Container does not exist");
+    };
+  };
+
+  public query ({ caller }) func getContainer(id : Text) : async ?Container {
+    containers.get(id);
+  };
+
+  public query ({ caller }) func getAllContainers() : async [Container] {
+    containers.values().toArray();
+  };
+
+  // CONTAINER ITEM MANAGEMENT - NEW
+  public shared ({ caller }) func addContainerItem(item : ContainerItem) : async () {
+    containerItems.add(item.id, item);
+  };
+
+  public shared ({ caller }) func removeContainerItem(id : Text) : async () {
+    let existed = containerItems.containsKey(id);
+    containerItems.remove(id);
+    if (not existed) { Runtime.trap("Container item does not exist") };
+  };
+
+  public query ({ caller }) func getContainerItems(containerId : Text) : async [ContainerItem] {
+    let filteredItems = containerItems.values().filter(
+      func(item) { item.containerId == containerId }
+    );
+    filteredItems.toArray();
+  };
+
+  public shared ({ caller }) func updateContainerItem(item : ContainerItem) : async () {
+    switch (containerItems.get(item.id)) {
+      case (null) { Runtime.trap("Container item does not exist") };
+      case (?_) {
+        containerItems.add(item.id, item);
+      };
     };
   };
 };

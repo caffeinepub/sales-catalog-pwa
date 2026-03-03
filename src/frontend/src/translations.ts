@@ -617,6 +617,86 @@ export const translations = {
     english: "Initial password: ",
   },
 
+  // Session
+  sessionExpired: {
+    traditional: "會話已超時，請重新登錄",
+    english: "Session expired. Please log in again.",
+  },
+
+  // Containers
+  containersManagement: {
+    traditional: "貨櫃管理",
+    english: "Container Management",
+  },
+  containers: {
+    traditional: "貨櫃",
+    english: "Containers",
+  },
+  addContainer: {
+    traditional: "添加貨櫃",
+    english: "Add Container",
+  },
+  editContainer: {
+    traditional: "編輯貨櫃",
+    english: "Edit Container",
+  },
+  deleteContainer: {
+    traditional: "刪除貨櫃",
+    english: "Delete Container",
+  },
+  containerNo: {
+    traditional: "貨櫃號",
+    english: "Container No",
+  },
+  shipper: {
+    traditional: "發貨人",
+    english: "Shipper",
+  },
+  eta: {
+    traditional: "預計到達日期",
+    english: "ETA",
+  },
+  entryPort: {
+    traditional: "入境口岸",
+    english: "Entry Port",
+  },
+  containerStatus: {
+    traditional: "狀態",
+    english: "Status",
+  },
+  notes: {
+    traditional: "備注",
+    english: "Notes",
+  },
+  containerItems: {
+    traditional: "產品清單",
+    english: "Product List",
+  },
+  addItem: {
+    traditional: "添加產品",
+    english: "Add Item",
+  },
+  removeItem: {
+    traditional: "移除",
+    english: "Remove",
+  },
+  sellingPrice: {
+    traditional: "售價",
+    english: "Selling Price",
+  },
+  inTransit: {
+    traditional: "運輸中",
+    english: "In Transit",
+  },
+  arrived: {
+    traditional: "已到達",
+    english: "Arrived",
+  },
+  customsCleared: {
+    traditional: "已清關",
+    english: "Customs Cleared",
+  },
+
   // Image upload
   uploadImage: {
     traditional: "上傳圖片",

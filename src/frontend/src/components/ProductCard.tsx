@@ -8,6 +8,7 @@ import type { ExtendedProduct } from "../types";
 
 interface ProductCardProps {
   product: Product;
+  onViewDetail?: (product: ExtendedProduct) => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -50,7 +51,7 @@ function StockBadge({
   );
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, onViewDetail }: ProductCardProps) {
   const { lang } = useLanguageStore();
   const { items, addItem, updateQty } = useCartStore();
 
@@ -58,7 +59,12 @@ export function ProductCard({ product }: ProductCardProps) {
   const qty = cartItem?.quantity ?? 0;
   const isOutOfStock = product.stockStatus === "out_of_stock";
 
-  const productName = product.nameCnTraditional || product.nameCnSimplified;
+  const extProduct = product as ExtendedProduct;
+  const nameEn = extProduct.nameEn || "";
+  const nameCn = product.nameCnTraditional || product.nameCnSimplified;
+  const isEnglish = lang === "english";
+  const primaryName = isEnglish && nameEn ? nameEn : nameCn;
+  const secondaryName = isEnglish && nameEn ? nameCn : null;
 
   const handleAdd = () => {
     if (isOutOfStock) return;
@@ -66,7 +72,7 @@ export function ProductCard({ product }: ProductCardProps) {
       addItem({
         productId: product.id,
         sku: product.sku,
-        name: productName,
+        name: primaryName,
         unitPrice: product.price,
       });
     } else {
@@ -88,12 +94,34 @@ export function ProductCard({ product }: ProductCardProps) {
       }`}
     >
       {/* Product Image */}
-      <div className="aspect-square bg-secondary relative overflow-hidden">
+      <div
+        className={`aspect-square bg-secondary relative overflow-hidden ${onViewDetail ? "cursor-pointer group" : ""}`}
+        onClick={
+          onViewDetail
+            ? () => onViewDetail(product as ExtendedProduct)
+            : undefined
+        }
+        role={onViewDetail ? "button" : undefined}
+        tabIndex={onViewDetail ? 0 : undefined}
+        onKeyDown={
+          onViewDetail
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onViewDetail(product as ExtendedProduct);
+                }
+              }
+            : undefined
+        }
+        aria-label={
+          onViewDetail ? `View details for ${primaryName}` : undefined
+        }
+      >
         {(product as ExtendedProduct).imageBlobUrl ? (
           <img
             src={(product as ExtendedProduct).imageBlobUrl}
-            alt={productName}
-            className="w-full h-full object-cover"
+            alt={primaryName}
+            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
             loading="lazy"
           />
         ) : (
@@ -110,6 +138,14 @@ export function ProductCard({ product }: ProductCardProps) {
             {product.category}
           </span>
         </div>
+        {/* Hover "View" overlay — only when onViewDetail is provided */}
+        {onViewDetail && (
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors duration-200 flex items-center justify-center">
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white/90 text-foreground text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+              View
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Card Content */}
@@ -120,9 +156,16 @@ export function ProductCard({ product }: ProductCardProps) {
         </p>
 
         {/* Name */}
-        <p className="text-sm font-semibold text-foreground leading-snug line-clamp-2 flex-1">
-          {productName}
-        </p>
+        <div className="flex-1 flex flex-col gap-0.5">
+          <p className="text-sm font-semibold text-foreground leading-snug line-clamp-2">
+            {primaryName}
+          </p>
+          {secondaryName && (
+            <p className="text-[11px] text-muted-foreground leading-snug line-clamp-1">
+              {secondaryName}
+            </p>
+          )}
+        </div>
 
         {/* BBD */}
         {(product as ExtendedProduct).bbd ? (

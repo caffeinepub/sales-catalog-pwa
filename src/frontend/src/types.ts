@@ -36,3 +36,28 @@ export interface Category {
   createdAt: bigint;
   updatedAt: bigint;
 }
+
+// Container entity stored in IndexedDB
+export interface Container {
+  id: string;
+  containerNo: string;
+  shipmentNo?: string;
+  shipper: string;
+  eta: string; // ISO date string
+  entryPort: string;
+  status: string; // "In Transit" | "Arrived" | "Customs Cleared"
+  notes: string;
+  createdAt: bigint;
+  updatedAt: bigint;
+}
+
+// ContainerItem entity stored in IndexedDB
+export interface ContainerItem {
+  id: string;
+  containerId: string;
+  productSku: string;
+  productName: string;
+  qty: bigint;
+  sellingPrice: number;
+  bbd: string;
+}

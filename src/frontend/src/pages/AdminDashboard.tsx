@@ -1,5 +1,6 @@
 import {
   ChevronRight,
+  Container,
   LayoutGrid,
   Loader2,
   Package,
@@ -120,6 +121,12 @@ export function AdminDashboard() {
       label: t("customerManagement", lang),
       icon: UserCheck,
       desc: lang === "english" ? "Manage customer info" : "管理客戶信息",
+    },
+    {
+      path: "/admin/containers",
+      label: t("containersManagement", lang),
+      icon: Container,
+      desc: lang === "english" ? "Track incoming shipments" : "追蹤入境貨櫃",
     },
   ];
 

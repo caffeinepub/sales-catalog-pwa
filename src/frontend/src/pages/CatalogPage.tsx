@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CustomerSelectorModal } from "../components/CustomerSelectorModal";
 import { FloatingCartButton } from "../components/FloatingCartButton";
 import { ProductCard } from "../components/ProductCard";
+import { ProductDetailModal } from "../components/ProductDetailModal";
 import {
   getAllCategories,
   getAllExtendedProducts,
@@ -41,6 +42,9 @@ export function CatalogPage() {
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [categoryMap, setCategoryMap] = useState<Record<string, string>>({}); // catId -> catEn
+  const [detailProduct, setDetailProduct] = useState<ExtendedProduct | null>(
+    null,
+  );
 
   // Load products — prefer extended_products (has BBD, stockStatus from bulk upload)
   useEffect(() => {
@@ -272,7 +276,11 @@ export function CatalogPage() {
             }}
           >
             {pagedProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard
+                key={product.id}
+                product={product}
+                onViewDetail={(p) => setDetailProduct(p)}
+              />
             ))}
           </motion.div>
         )}
@@ -428,6 +436,13 @@ export function CatalogPage() {
 
       {/* Floating Cart Button */}
       <FloatingCartButton />
+
+      {/* Product Detail Modal */}
+      <ProductDetailModal
+        product={detailProduct}
+        open={!!detailProduct}
+        onClose={() => setDetailProduct(null)}
+      />
     </div>
   );
 }
