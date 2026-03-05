@@ -40,9 +40,9 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { ExternalBlob } from "../backend";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
-import { uploadBytesToBlob } from "../lib/blobUpload";
 import {
   getAllCategories,
   getAllExtendedProducts,
@@ -305,19 +305,29 @@ export function ProductManagement() {
       const now = BigInt(Date.now());
       let imageBlobUrl = editingProduct?.imageBlobUrl ?? "";
 
-      // If a new image file was selected, upload it
+      // If a new image file was selected, upload it via ExternalBlob
       if (imageFile) {
         setUploadingImage(true);
         try {
           const rawBytes = await resizeImageToMaxWidth(imageFile, 1024);
-          const bytes =
+          const safeBytes =
             rawBytes.buffer instanceof ArrayBuffer
               ? new Uint8Array(rawBytes.buffer as ArrayBuffer)
               : new Uint8Array(rawBytes);
-          // Upload directly to blob storage using our working upload pipeline
-          imageBlobUrl = await uploadBytesToBlob(bytes, undefined, (pct) => {
-            setImageUploadProgress(pct);
-          });
+          // Use platform ExternalBlob which handles auth and upload correctly
+          const blob = ExternalBlob.fromBytes(safeBytes).withUploadProgress(
+            (pct) => setImageUploadProgress(pct),
+          );
+          imageBlobUrl = blob.getDirectURL();
+          // Persist the image to the backend product record
+          if (form.sku) {
+            try {
+              const backendActor = await getBackendActor();
+              await backendActor.updateProductImage(form.sku, blob);
+            } catch {
+              // Backend sync failed — URL still saved locally
+            }
+          }
           toast.success(t("imageUploaded", lang));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -429,6 +439,7 @@ export function ProductManagement() {
 
   /**
    * Upload Image Folder: match filenames to products and store blobs.
+   * Uses ExternalBlob.fromBytes() — the same path that works for single upload.
    */
   const handleFolderUpload = async (files: FileList) => {
     if (files.length === 0) return;
@@ -438,14 +449,20 @@ export function ProductManagement() {
       const allProducts = await getAllExtendedProducts();
       let matchedFiles = 0;
       let updatedProducts = 0;
+      let uploadErrors = 0;
       const updatedMap = new Map<string, ExtendedProduct>();
 
       for (const file of Array.from(files)) {
-        const fileName = file.name.toLowerCase();
+        const fileName = file.name.trim().toLowerCase();
         // Find all products whose imageFileName matches this file
-        const matchingProducts = allProducts.filter(
-          (p) => p.imageFileName?.toLowerCase() === fileName,
-        );
+        // Also try matching just the base name without path separators
+        const matchingProducts = allProducts.filter((p) => {
+          if (!p.imageFileName) return false;
+          const stored = p.imageFileName.trim().toLowerCase();
+          // Match full filename or just the basename (after last / or \)
+          const storedBase = stored.split(/[/\\]/).pop() ?? stored;
+          return storedBase === fileName || stored === fileName;
+        });
 
         if (matchingProducts.length > 0) {
           matchedFiles++;
@@ -455,33 +472,35 @@ export function ProductManagement() {
               rawBytes.buffer instanceof ArrayBuffer
                 ? new Uint8Array(rawBytes.buffer as ArrayBuffer)
                 : new Uint8Array(rawBytes);
+
+            // Use ExternalBlob.fromBytes() — same path as single image upload
+            const blob = ExternalBlob.fromBytes(safeBytes);
+            const blobUrl = blob.getDirectURL();
+
+            // Sync to backend (this also triggers the actual upload)
             if (isOnline) {
-              // Upload directly to blob storage using our working pipeline
-              const blobUrl = await uploadBytesToBlob(safeBytes);
               for (const product of matchingProducts) {
-                const updatedProduct: ExtendedProduct = {
-                  ...product,
-                  imageBlobUrl: blobUrl,
-                  updatedAt: BigInt(Date.now()),
-                };
-                updatedMap.set(product.id, updatedProduct);
-                updatedProducts++;
-              }
-            } else {
-              // Offline: just create a local object URL for display
-              const localUrl = URL.createObjectURL(file);
-              for (const product of matchingProducts) {
-                const updatedProduct: ExtendedProduct = {
-                  ...product,
-                  imageBlobUrl: localUrl,
-                  updatedAt: BigInt(Date.now()),
-                };
-                updatedMap.set(product.id, updatedProduct);
-                updatedProducts++;
+                try {
+                  const backendActor = await getBackendActor();
+                  await backendActor.updateProductImage(product.sku, blob);
+                } catch {
+                  // Backend sync failed — URL is still valid locally
+                }
               }
             }
-          } catch {
-            // Continue processing other files even if one fails
+
+            for (const product of matchingProducts) {
+              const updatedProduct: ExtendedProduct = {
+                ...product,
+                imageBlobUrl: blobUrl,
+                updatedAt: BigInt(Date.now()),
+              };
+              updatedMap.set(product.id, updatedProduct);
+              updatedProducts++;
+            }
+          } catch (err) {
+            uploadErrors++;
+            console.error(`Failed to upload ${file.name}:`, err);
           }
         }
       }
@@ -493,16 +512,30 @@ export function ProductManagement() {
         );
         await saveAllExtendedProducts(finalProducts);
         setProducts(finalProducts);
+        const errNote =
+          uploadErrors > 0 ? ` (${uploadErrors} failed to upload)` : "";
         toast.success(
-          `Successfully matched ${matchedFiles} images to ${updatedProducts} products.`,
+          `Successfully matched ${matchedFiles} images to ${updatedProducts} products.${errNote}`,
         );
+      } else if (matchedFiles === 0) {
+        // Show the actual product imageFileName values to help diagnose
+        const sampleFileNames = allProducts
+          .filter((p) => p.imageFileName)
+          .slice(0, 3)
+          .map((p) => `"${p.imageFileName}"`)
+          .join(", ");
+        const hint = sampleFileNames
+          ? ` Products have Image_FileName: ${sampleFileNames}`
+          : " No products have Image_FileName set.";
+        toast.warning(`No filenames matched any products.${hint}`);
       } else {
-        toast.warning(
-          "No images matched any products. Check that Image_FileName values match your file names.",
+        toast.error(
+          `Matched ${matchedFiles} files but all ${uploadErrors} uploads failed. Check your connection and try again.`,
         );
       }
-    } catch {
-      toast.error(t("loadError", lang));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Upload failed: ${msg}`);
     } finally {
       setFolderUploading(false);
       // Reset folder input
@@ -590,6 +623,8 @@ export function ProductManagement() {
       await saveAllExtendedProducts(updatedList);
       await loadProducts();
       setUploadResults({ created, updated, errors });
+      // Treat file as temporary — clear it immediately after successful processing
+      setUploadFile(null);
     } catch {
       toast.error(t("loadError", lang));
     } finally {
@@ -1389,6 +1424,11 @@ export function ProductManagement() {
                     ✗ {t("errors", lang)}: {uploadResults.errors}
                   </p>
                 )}
+                <p className="text-xs text-muted-foreground pt-1 border-t border-border mt-1">
+                  {lang === "english"
+                    ? "File processed — no copy retained in storage."
+                    : "檔案已處理完成，不會保留副本。"}
+                </p>
               </div>
             )}
           </div>

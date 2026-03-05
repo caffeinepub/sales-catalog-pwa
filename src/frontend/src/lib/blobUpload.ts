@@ -340,6 +340,41 @@ async function uploadChunk(
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+export interface BlobStorageStats {
+  usedBytes: number;
+  limitBytes: number;
+}
+
+/**
+ * Fetch blob storage usage stats from the gateway.
+ * Returns usedBytes and limitBytes (defaults to 2 GB limit if not provided).
+ */
+export async function getBlobStorageStats(): Promise<BlobStorageStats> {
+  const config = await loadConfig();
+  const url = `${config.storage_gateway_url}/${GATEWAY_VERSION}/bucket/stats/?bucket_name=${encodeURIComponent(config.bucket_name)}&project_id=${encodeURIComponent(config.project_id)}&owner_id=${encodeURIComponent(config.backend_canister_id)}`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { "X-Caffeine-Project-ID": config.project_id },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    // Gateway may return total_bytes, used_bytes, num_bytes, byte_count etc.
+    const usedBytes =
+      data.total_bytes ??
+      data.used_bytes ??
+      data.num_bytes ??
+      data.byte_count ??
+      0;
+    const limitBytes =
+      data.limit_bytes ?? data.quota_bytes ?? 2 * 1024 * 1024 * 1024; // 2 GB default
+    return { usedBytes: Number(usedBytes), limitBytes: Number(limitBytes) };
+  } catch {
+    // Return zeros on failure — indicator will show gracefully
+    return { usedBytes: 0, limitBytes: 2 * 1024 * 1024 * 1024 };
+  }
+}
+
 /**
  * Upload raw bytes to blob storage and return the direct URL.
  * Uses an anonymous HttpAgent — the storage certificate endpoint is open

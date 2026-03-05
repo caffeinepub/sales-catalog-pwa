@@ -124,6 +124,12 @@ export function AppLayout() {
       label: t("myOrders", lang),
       icon: ClipboardList,
     },
+    // Containers is visible to all users — read-only unless they have canEditContainers or are admin
+    {
+      path: "/admin/containers",
+      label: t("containers", lang),
+      icon: Container,
+    },
     ...(currentUser?.role === "admin"
       ? [
           {
@@ -131,18 +137,17 @@ export function AppLayout() {
             label: t("admin", lang),
             icon: Settings,
           },
-          {
-            path: "/admin/containers",
-            label: t("containers", lang),
-            icon: Container,
-          },
         ]
       : []),
   ];
 
   const isActive = (path: string) => {
     if (path === "/admin") {
-      return location.pathname.startsWith("/admin");
+      // Admin tab is active for admin pages but NOT for /admin/containers
+      return (
+        location.pathname.startsWith("/admin") &&
+        !location.pathname.startsWith("/admin/containers")
+      );
     }
     return (
       location.pathname === path || location.pathname.startsWith(`${path}/`)

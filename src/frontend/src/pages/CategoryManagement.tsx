@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -16,11 +17,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  ArrowLeft,
+  Layers,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { deleteCategory, getAllCategories, saveCategory } from "../lib/db";
+import { generateCategoryTemplate, parseCategoriesExcel } from "../lib/excel";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 import type { Category } from "../types";
@@ -49,6 +59,18 @@ export function CategoryManagement() {
   const [form, setForm] = useState<CategoryForm>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Bulk upload state
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadResults, setUploadResults] = useState<{
+    created: number;
+    updated: number;
+    errors: number;
+  } | null>(null);
+  const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
   const loadCategories = async () => {
     setLoading(true);
@@ -126,6 +148,59 @@ export function CategoryManagement() {
     }
   };
 
+  const handleBulkUpload = async () => {
+    if (!uploadFile) return;
+    setUploading(true);
+    setUploadResults(null);
+    setUploadProgress(0);
+
+    try {
+      const rows = await parseCategoriesExcel(uploadFile);
+      let created = 0;
+      let updated = 0;
+      let errors = 0;
+      const existing = await getAllCategories();
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        setUploadProgress(Math.round(((i + 1) / rows.length) * 100));
+        try {
+          const now = BigInt(Date.now());
+          // Match by catId
+          const existingCat = existing.find(
+            (c) => c.catId.toLowerCase() === row.catId.toLowerCase(),
+          );
+          const category: Category = {
+            id: existingCat?.id || crypto.randomUUID(),
+            catId: row.catId,
+            catEn: row.catEn,
+            catCn: row.catCn || existingCat?.catCn || "",
+            subCat: row.subCat || existingCat?.subCat || "",
+            createdAt: existingCat?.createdAt ?? now,
+            updatedAt: now,
+          };
+          await saveCategory(category);
+          if (existingCat) {
+            updated++;
+          } else {
+            created++;
+          }
+        } catch {
+          errors++;
+        }
+      }
+
+      await loadCategories();
+      setUploadResults({ created, updated, errors });
+      // Treat file as temporary — clear reference immediately after processing
+      setUploadFile(null);
+    } catch {
+      toast.error(t("loadError", lang));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -141,15 +216,32 @@ export function CategoryManagement() {
         <h1 className="font-bold text-lg flex-1">
           {t("categoryManagement", lang)}
         </h1>
-        <Button
-          size="sm"
-          onClick={openAdd}
-          data-ocid="category.primary_button"
-          className="gap-1.5 h-9 bg-primary-600 hover:bg-primary-700 text-white"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">{t("addCategory", lang)}</span>
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setUploadFile(null);
+              setUploadResults(null);
+              setUploadProgress(0);
+              setShowBulkUpload(true);
+            }}
+            data-ocid="category.open_modal_button"
+            className="gap-1.5 h-9"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="hidden sm:inline">{t("bulkUpload", lang)}</span>
+          </Button>
+          <Button
+            size="sm"
+            onClick={openAdd}
+            data-ocid="category.primary_button"
+            className="gap-1.5 h-9 bg-primary-600 hover:bg-primary-700 text-white"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">{t("addCategory", lang)}</span>
+          </Button>
+        </div>
       </div>
 
       <div className="p-4">
@@ -245,6 +337,133 @@ export function CategoryManagement() {
           </div>
         )}
       </div>
+
+      {/* Hidden file input for bulk upload */}
+      <input
+        ref={bulkFileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) setUploadFile(file);
+        }}
+      />
+
+      {/* Bulk Upload Modal */}
+      <Dialog
+        open={showBulkUpload}
+        onOpenChange={(o) => !o && setShowBulkUpload(false)}
+      >
+        <DialogContent
+          className="w-[95vw] max-w-md rounded-2xl"
+          data-ocid="category.bulk_upload.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>{t("bulkUpload", lang)}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Button
+              variant="outline"
+              onClick={generateCategoryTemplate}
+              className="w-full gap-2"
+              data-ocid="category.bulk_upload.template.button"
+            >
+              <Upload className="w-4 h-4" />
+              {t("downloadTemplate", lang)}
+            </Button>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm">
+                {lang === "english" ? "Upload Excel File" : "上傳 Excel 檔案"}
+              </Label>
+              <div
+                className={`flex items-center gap-3 p-3 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
+                  uploadFile
+                    ? "border-primary-400 bg-primary-50/40"
+                    : "border-border hover:border-primary-300 hover:bg-primary-50/20"
+                }`}
+                onClick={() => bulkFileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ")
+                    bulkFileInputRef.current?.click();
+                }}
+                data-ocid="category.bulk_upload.dropzone"
+              >
+                <Upload className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm text-muted-foreground truncate">
+                  {uploadFile
+                    ? uploadFile.name
+                    : lang === "english"
+                      ? "Click to select .xlsx file"
+                      : "點擊選擇 .xlsx 檔案"}
+                </span>
+              </div>
+            </div>
+
+            {uploading && (
+              <div
+                className="space-y-1.5"
+                data-ocid="category.bulk_upload.loading_state"
+              >
+                <Progress value={uploadProgress} className="h-2" />
+                <p className="text-xs text-center text-muted-foreground">
+                  {lang === "english"
+                    ? `Processing… ${uploadProgress}%`
+                    : `處理中… ${uploadProgress}%`}
+                </p>
+              </div>
+            )}
+
+            {uploadResults && (
+              <div
+                className="rounded-xl bg-secondary/60 p-3 text-sm space-y-1"
+                data-ocid="category.bulk_upload.success_state"
+              >
+                <p className="font-semibold text-foreground">
+                  {lang === "english" ? "Upload complete" : "上傳完成"}
+                </p>
+                <p className="text-muted-foreground">
+                  {lang === "english"
+                    ? `Created: ${uploadResults.created} · Updated: ${uploadResults.updated} · Errors: ${uploadResults.errors}`
+                    : `新增: ${uploadResults.created} · 更新: ${uploadResults.updated} · 錯誤: ${uploadResults.errors}`}
+                </p>
+                <p className="text-xs text-muted-foreground pt-1 border-t border-border">
+                  {lang === "english"
+                    ? "File processed — no copy retained in storage."
+                    : "檔案已處理完成，不會保留副本。"}
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowBulkUpload(false)}
+              data-ocid="category.bulk_upload.cancel_button"
+            >
+              {t("cancel", lang)}
+            </Button>
+            <Button
+              onClick={handleBulkUpload}
+              disabled={!uploadFile || uploading}
+              data-ocid="category.bulk_upload.submit_button"
+              className="bg-primary-600 hover:bg-primary-700 text-white"
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {lang === "english" ? "Uploading…" : "上傳中…"}
+                </>
+              ) : lang === "english" ? (
+                "Upload"
+              ) : (
+                "上傳"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit Category Modal */}
       <Dialog open={showModal} onOpenChange={(o) => !o && setShowModal(false)}>

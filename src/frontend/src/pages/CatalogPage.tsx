@@ -41,7 +41,9 @@ export function CatalogPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [categoryMap, setCategoryMap] = useState<Record<string, string>>({}); // catId -> catEn
+  const [categoryMap, setCategoryMap] = useState<
+    Record<string, { catEn: string; catCn: string }>
+  >({}); // catId -> { catEn, catCn }
   const [detailProduct, setDetailProduct] = useState<ExtendedProduct | null>(
     null,
   );
@@ -57,10 +59,10 @@ export function CatalogPage() {
           getAllCategories(),
         ]);
 
-        // Build category map: catId -> catEn
-        const map: Record<string, string> = {};
+        // Build category map: catId -> { catEn, catCn }
+        const map: Record<string, { catEn: string; catCn: string }> = {};
         for (const c of allCategories) {
-          if (c.catId) map[c.catId] = c.catEn;
+          if (c.catId) map[c.catId] = { catEn: c.catEn, catCn: c.catCn };
         }
         setCategoryMap(map);
 
@@ -230,7 +232,9 @@ export function CatalogPage() {
                   : "bg-white border border-border text-muted-foreground hover:bg-secondary"
               }`}
             >
-              {lang === "english" && categoryMap[cat] ? categoryMap[cat] : cat}
+              {lang === "english"
+                ? (categoryMap[cat]?.catEn ?? cat)
+                : categoryMap[cat]?.catCn || categoryMap[cat]?.catEn || cat}
             </button>
           ))}
         </div>

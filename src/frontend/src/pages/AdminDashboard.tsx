@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   Container,
+  Database,
   LayoutGrid,
   Loader2,
   Package,
@@ -14,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
+import { type BlobStorageStats, getBlobStorageStats } from "../lib/blobUpload";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
@@ -24,12 +26,24 @@ interface Stats {
   totalUsers: number;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function AdminDashboard() {
   const { lang } = useLanguageStore();
   const navigate = useNavigate();
   const isOnline = useOnlineStatus();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [storageStats, setStorageStats] = useState<BlobStorageStats | null>(
+    null,
+  );
+  const [storageLoading, setStorageLoading] = useState(true);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -64,6 +78,25 @@ export function AdminDashboard() {
       }
     };
     loadStats();
+  }, [isOnline]);
+
+  useEffect(() => {
+    const loadStorage = async () => {
+      if (!isOnline) {
+        setStorageLoading(false);
+        return;
+      }
+      setStorageLoading(true);
+      try {
+        const s = await getBlobStorageStats();
+        setStorageStats(s);
+      } catch {
+        setStorageStats(null);
+      } finally {
+        setStorageLoading(false);
+      }
+    };
+    loadStorage();
   }, [isOnline]);
 
   const statCards = [
@@ -173,6 +206,68 @@ export function AdminDashboard() {
             </motion.div>
           ))}
         </div>
+
+        {/* Storage Used Indicator */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="bg-white rounded-xl border border-border p-4"
+          data-ocid="admin.storage_used.card"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-indigo-50">
+                <Database className="w-4 h-4 text-indigo-600" />
+              </div>
+              <span className="text-sm font-semibold text-foreground">
+                {lang === "english" ? "Storage Used" : "儲存空間使用"}
+              </span>
+            </div>
+            {storageLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            ) : storageStats ? (
+              <span className="text-xs text-muted-foreground font-medium tabular-nums">
+                {formatBytes(storageStats.usedBytes)} /{" "}
+                {formatBytes(storageStats.limitBytes)}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {lang === "english" ? "Unavailable" : "無法載入"}
+              </span>
+            )}
+          </div>
+          {!storageLoading && storageStats && (
+            <>
+              <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    storageStats.limitBytes > 0 &&
+                    storageStats.usedBytes / storageStats.limitBytes > 0.85
+                      ? "bg-red-500"
+                      : storageStats.limitBytes > 0 &&
+                          storageStats.usedBytes / storageStats.limitBytes > 0.6
+                        ? "bg-amber-500"
+                        : "bg-indigo-500"
+                  }`}
+                  style={{
+                    width:
+                      storageStats.limitBytes > 0
+                        ? `${Math.min(100, (storageStats.usedBytes / storageStats.limitBytes) * 100).toFixed(1)}%`
+                        : "0%",
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {storageStats.limitBytes > 0
+                  ? `${((storageStats.usedBytes / storageStats.limitBytes) * 100).toFixed(1)}% ${lang === "english" ? "used" : "已使用"}`
+                  : lang === "english"
+                    ? "Usage data unavailable"
+                    : "無使用量數據"}
+              </p>
+            </>
+          )}
+        </motion.div>
 
         {/* Navigation Cards */}
         <div className="space-y-3">

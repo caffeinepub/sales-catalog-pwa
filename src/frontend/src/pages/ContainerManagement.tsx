@@ -342,7 +342,9 @@ export function ContainerManagement() {
       <div className="sticky top-14 z-30 bg-white border-b border-border px-4 py-3 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate("/admin")}
+          onClick={() =>
+            navigate(currentUser?.role === "admin" ? "/admin" : "/catalog")
+          }
           data-ocid="container.back_button"
           className="p-2 rounded-lg hover:bg-secondary -ml-2 touch-manipulation"
         >

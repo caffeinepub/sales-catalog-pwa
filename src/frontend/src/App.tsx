@@ -108,9 +108,9 @@ export default function App() {
           <Route
             path="admin/containers"
             element={
-              <AdminRoute>
+              <ProtectedRoute>
                 <ContainerManagement />
-              </AdminRoute>
+              </ProtectedRoute>
             }
           />
         </Route>

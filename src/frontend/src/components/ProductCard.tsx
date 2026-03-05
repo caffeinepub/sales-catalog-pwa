@@ -121,7 +121,7 @@ export function ProductCard({ product, onViewDetail }: ProductCardProps) {
           <img
             src={(product as ExtendedProduct).imageBlobUrl}
             alt={primaryName}
-            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+            className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 bg-white"
             loading="lazy"
           />
         ) : (

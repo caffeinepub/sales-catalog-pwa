@@ -178,6 +178,129 @@ function excelDateToISOString(value: unknown): string {
   return String(value);
 }
 
+// ──────────────────────────────────────────────
+// Customer template + parser
+// ──────────────────────────────────────────────
+
+export function generateCustomerTemplate(): void {
+  const wb = XLSX.utils.book_new();
+  const templateData = [
+    ["Name", "Contact_Person", "Phone", "Email", "Address"],
+    [
+      "Acme Trading Ltd",
+      "John Smith",
+      "+44 20 1234 5678",
+      "john@acme.com",
+      "123 High Street, London, W1A 1AA",
+    ],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(templateData);
+  ws["!cols"] = [
+    { wch: 30 },
+    { wch: 20 },
+    { wch: 18 },
+    { wch: 28 },
+    { wch: 40 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Customers");
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([wbout], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  downloadExcel(blob, "customers_template.xlsx");
+}
+
+export interface ParsedCustomerRow {
+  name: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
+  address: string;
+}
+
+export function parseCustomersExcel(file: File): Promise<ParsedCustomerRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+          raw: false,
+        });
+        const customers: ParsedCustomerRow[] = rows.map((row) => ({
+          name: String(row.Name || row.name || ""),
+          contactPerson: String(row.Contact_Person || row.contact_person || ""),
+          phone: String(row.Phone || row.phone || ""),
+          email: String(row.Email || row.email || ""),
+          address: String(row.Address || row.address || ""),
+        }));
+        resolve(customers.filter((c) => c.name));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// ──────────────────────────────────────────────
+// Category template + parser
+// ──────────────────────────────────────────────
+
+export function generateCategoryTemplate(): void {
+  const wb = XLSX.utils.book_new();
+  const templateData = [
+    ["Cat_ID", "Cat_En", "Cat_Cn", "Sub_Cat"],
+    ["CAT-FOOD", "Food & Beverage", "食品飲料", ""],
+    ["CAT-FOOD-SNACKS", "Snacks", "零食", "Snacks"],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(templateData);
+  ws["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 24 }];
+  XLSX.utils.book_append_sheet(wb, ws, "Categories");
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([wbout], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  downloadExcel(blob, "categories_template.xlsx");
+}
+
+export interface ParsedCategoryRow {
+  catId: string;
+  catEn: string;
+  catCn: string;
+  subCat: string;
+}
+
+export function parseCategoriesExcel(file: File): Promise<ParsedCategoryRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+          raw: false,
+        });
+        const categories: ParsedCategoryRow[] = rows.map((row) => ({
+          catId: String(row.Cat_ID || row.cat_id || ""),
+          catEn: String(row.Cat_En || row.cat_en || ""),
+          catCn: String(row.Cat_Cn || row.cat_cn || ""),
+          subCat: String(row.Sub_Cat || row.sub_cat || ""),
+        }));
+        resolve(categories.filter((c) => c.catId && c.catEn));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 export function parseProductsExcel(file: File): Promise<ParsedProductRow[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

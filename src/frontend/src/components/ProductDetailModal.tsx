@@ -133,12 +133,12 @@ export function ProductDetailModal({
         {/* Body: two-column on md+, stacked on mobile */}
         <div className="flex flex-col md:flex-row">
           {/* Left: Image */}
-          <div className="md:w-64 md:flex-shrink-0 bg-secondary/40 flex items-center justify-center md:min-h-64">
+          <div className="md:w-64 md:flex-shrink-0 bg-white flex items-center justify-center md:min-h-64">
             {product.imageBlobUrl ? (
               <img
                 src={product.imageBlobUrl}
                 alt={primaryName}
-                className="w-full h-64 md:h-full object-cover"
+                className="w-full h-64 md:h-full object-contain"
               />
             ) : (
               <div className="w-full h-56 md:h-full flex flex-col items-center justify-center text-muted-foreground gap-2 p-8">
