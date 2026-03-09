@@ -34,13 +34,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Pencil, Plus, Trash2, UserPlus, Users } from "lucide-react";
-import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import {
+  ArrowLeft,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  UserPlus,
+  Users,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import type { AppUser } from "../backend.d";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
+import { getAppUsersFromCache, saveAppUsersToCache } from "../lib/db";
 import {
   type AuthUser,
   setUserPassword,
@@ -49,6 +58,7 @@ import {
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
+// UI-layer record derived from AppUser for display
 interface UserRecord {
   id: string;
   email: string;
@@ -57,9 +67,9 @@ interface UserRecord {
   totalOrders: number;
   joinDate: string;
   canEditContainers: boolean;
+  passwordHash: string;
+  mustChangePassword: boolean;
 }
-
-const USERS_STORE_KEY = "sales_catalog_users_list";
 
 const DEFAULT_ADMIN: UserRecord = {
   id: "admin-001",
@@ -69,32 +79,37 @@ const DEFAULT_ADMIN: UserRecord = {
   totalOrders: 0,
   joinDate: new Date().toLocaleDateString("zh-CN"),
   canEditContainers: true,
+  passwordHash: "Admin123",
+  mustChangePassword: false,
 };
 
-function loadUsers(): UserRecord[] {
-  try {
-    const raw = localStorage.getItem(USERS_STORE_KEY);
-    if (!raw) return [DEFAULT_ADMIN];
-    const parsed = JSON.parse(raw) as UserRecord[];
-    // Ensure canEditContainers has a default value for existing records
-    const normalised = parsed.map((u) => ({
-      ...u,
-      canEditContainers: u.canEditContainers ?? false,
-    }));
-    // Ensure admin is always present
-    const hasAdmin = normalised.some((u) => u.id === "admin-001");
-    if (!hasAdmin) return [DEFAULT_ADMIN, ...normalised];
-    // Ensure admin-001 always has canEditContainers: true
-    return normalised.map((u) =>
-      u.id === "admin-001" ? { ...u, canEditContainers: true } : u,
-    );
-  } catch {
-    return [DEFAULT_ADMIN];
-  }
+function appUserToRecord(u: AppUser): UserRecord {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.fullName,
+    role: u.role === "admin" ? "admin" : "sales_rep",
+    totalOrders: Number(u.totalOrders),
+    joinDate: u.joinDate,
+    canEditContainers: u.canEditContainers,
+    passwordHash: u.passwordHash,
+    mustChangePassword: u.mustChangePassword,
+  };
 }
 
-function persistUsers(users: UserRecord[]): void {
-  localStorage.setItem(USERS_STORE_KEY, JSON.stringify(users));
+function recordToAppUser(r: UserRecord): AppUser {
+  return {
+    id: r.id,
+    email: r.email,
+    fullName: r.name,
+    role: r.role,
+    totalOrders: BigInt(r.totalOrders),
+    joinDate: r.joinDate,
+    canEditContainers: r.canEditContainers,
+    passwordHash: r.passwordHash,
+    mustChangePassword: r.mustChangePassword,
+    createdAt: BigInt(Date.now()),
+  };
 }
 
 interface UserForm {
@@ -118,7 +133,8 @@ export function UserManagement() {
   const { lang } = useLanguageStore();
   const { currentUser } = useAuthStore();
   const isOnline = useOnlineStatus();
-  const [users, setUsers] = useState<UserRecord[]>(loadUsers);
+  const [users, setUsers] = useState<UserRecord[]>([DEFAULT_ADMIN]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
 
   // Combined add/edit modal
   const [showModal, setShowModal] = useState(false);
@@ -129,13 +145,75 @@ export function UserManagement() {
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<UserRecord | null>(null);
 
-  const handleDeleteConfirm = () => {
+  // Load users on mount: backend first, fallback to localStorage cache
+  useEffect(() => {
+    const loadUsers = async () => {
+      setLoadingUsers(true);
+      try {
+        if (isOnline) {
+          try {
+            const actor = await getBackendActor();
+            const backendUsers = await actor.getAllAppUsers();
+            const records = backendUsers.map(appUserToRecord);
+            // Ensure admin is always present
+            const hasAdmin = records.some((u) => u.id === "admin-001");
+            const finalRecords = hasAdmin
+              ? records.map((u) =>
+                  u.id === "admin-001" ? { ...u, canEditContainers: true } : u,
+                )
+              : [DEFAULT_ADMIN, ...records];
+            saveAppUsersToCache(backendUsers);
+            setUsers(finalRecords);
+            return;
+          } catch {
+            // Fall through to cache
+          }
+        }
+        // Offline: use localStorage cache
+        const cached = getAppUsersFromCache();
+        if (cached.length > 0) {
+          const records = cached.map(appUserToRecord);
+          const hasAdmin = records.some((u) => u.id === "admin-001");
+          setUsers(
+            hasAdmin
+              ? records.map((u) =>
+                  u.id === "admin-001" ? { ...u, canEditContainers: true } : u,
+                )
+              : [DEFAULT_ADMIN, ...records],
+          );
+        } else {
+          setUsers([DEFAULT_ADMIN]);
+        }
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+    loadUsers();
+  }, [isOnline]);
+
+  const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
-    const updated = users.filter((u) => u.id !== deleteTarget.id);
-    persistUsers(updated);
-    setUsers(updated);
-    setDeleteTarget(null);
-    toast.success(lang === "english" ? "User deleted." : "用戶已刪除。");
+    if (!isOnline) {
+      toast.error(
+        lang === "english"
+          ? "Cannot make changes while offline"
+          : "離線時無法儲存更改",
+      );
+      setDeleteTarget(null);
+      return;
+    }
+    try {
+      const actor = await getBackendActor();
+      await actor.deleteAppUser(deleteTarget.email);
+      const updated = users.filter((u) => u.id !== deleteTarget.id);
+      saveAppUsersToCache(updated.map(recordToAppUser));
+      setUsers(updated);
+      toast.success(lang === "english" ? "User deleted." : "用戶已刪除。");
+    } catch {
+      toast.error(t("loadError", lang));
+    } finally {
+      setDeleteTarget(null);
+    }
   };
 
   const openAdd = (defaultRole: "admin" | "sales_rep" = "sales_rep") => {
@@ -158,8 +236,18 @@ export function UserManagement() {
 
   const handleSave = async () => {
     if (!form.email || !form.name) return;
+    if (!isOnline) {
+      toast.error(
+        lang === "english"
+          ? "Cannot make changes while offline"
+          : "離線時無法儲存更改",
+      );
+      return;
+    }
     setSaving(true);
     try {
+      const actor = await getBackendActor();
+
       if (editingUser) {
         // Edit existing user — admin-001 always keeps canEditContainers: true
         const canEditContainers =
@@ -171,10 +259,12 @@ export function UserManagement() {
           role: form.role,
           canEditContainers,
         };
+        // Save to backend first
+        await actor.upsertAppUser(recordToAppUser(updatedUser));
         const updated = users.map((u) =>
           u.id === editingUser.id ? updatedUser : u,
         );
-        persistUsers(updated);
+        saveAppUsersToCache(updated.map(recordToAppUser));
         setUsers(updated);
 
         // If we just edited the currently logged-in user, refresh their session
@@ -193,38 +283,29 @@ export function UserManagement() {
       } else {
         // Add new user — use provided ID or generate one
         const id = form.id.trim() || crypto.randomUUID();
-        // Attempt backend sync
-        if (isOnline) {
-          try {
-            const backendActor = await getBackendActor();
-            if (form.role === "sales_rep") {
-              await backendActor.inviteUser(
-                id,
-                form.email,
-                form.name,
-                currentUser?.id || null,
-              );
-            } else {
-              await backendActor.createAdminUser(id, form.email, form.name);
-            }
-          } catch {
-            // Backend sync failed — continue with local creation
-          }
-        }
-        // Set initial password = user ID, mustChange = true
-        setUserPassword(form.email, id, true);
-        const newUser: UserRecord = {
+        const now = new Date().toLocaleDateString("zh-CN");
+
+        const newRecord: UserRecord = {
           id,
           email: form.email,
           name: form.name,
           role: form.role,
           totalOrders: 0,
-          joinDate: new Date().toLocaleDateString("zh-CN"),
+          joinDate: now,
           canEditContainers: form.canEditContainers,
+          // Initial password = user ID, mustChange = true
+          passwordHash: id,
+          mustChangePassword: true,
         };
+
+        // Save to backend — must succeed online
+        await actor.upsertAppUser(recordToAppUser(newRecord));
+        // Also set localStorage credential for offline login fallback
+        setUserPassword(form.email, id, true);
+
         setUsers((prev) => {
-          const updated = [...prev, newUser];
-          persistUsers(updated);
+          const updated = [...prev, newRecord];
+          saveAppUsersToCache(updated.map(recordToAppUser));
           return updated;
         });
         toast.success(
@@ -284,7 +365,14 @@ export function UserManagement() {
       </div>
 
       <div className="p-4">
-        {users.length === 0 ? (
+        {loadingUsers ? (
+          <div
+            className="flex justify-center py-16"
+            data-ocid="user.loading_state"
+          >
+            <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+          </div>
+        ) : users.length === 0 ? (
           <div
             className="flex flex-col items-center justify-center py-16 text-center"
             data-ocid="user.empty_state"

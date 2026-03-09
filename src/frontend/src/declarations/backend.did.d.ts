@@ -10,6 +10,27 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface AppUser {
+  'id' : string,
+  'totalOrders' : bigint,
+  'joinDate' : string,
+  'createdAt' : bigint,
+  'role' : string,
+  'fullName' : string,
+  'email' : string,
+  'passwordHash' : string,
+  'canEditContainers' : boolean,
+  'mustChangePassword' : boolean,
+}
+export interface Category {
+  'id' : string,
+  'catCn' : string,
+  'catEn' : string,
+  'catId' : string,
+  'createdAt' : bigint,
+  'updatedAt' : bigint,
+  'subCat' : string,
+}
 export interface Container {
   'id' : string,
   'eta' : string,
@@ -29,6 +50,29 @@ export interface ContainerItem {
   'productSku' : string,
   'sellingPrice' : number,
   'productName' : string,
+}
+export interface Customer {
+  'id' : string,
+  'name' : string,
+  'createdAt' : bigint,
+  'contactPerson' : string,
+  'email' : string,
+  'address' : string,
+  'phone' : string,
+}
+export interface ExtendedProduct {
+  'bbd' : string,
+  'sku' : string,
+  'uom' : string,
+  'vat' : number,
+  'categoryId' : string,
+  'promotions' : string,
+  'nameEn' : string,
+  'imageFileName' : string,
+  'size' : string,
+  'updatedAt' : bigint,
+  'stock' : bigint,
+  'brand' : string,
 }
 export type ExternalBlob = Uint8Array;
 export interface Order {
@@ -65,8 +109,20 @@ export interface Product {
   'price' : number,
   'nameCnTraditional' : string,
 }
+export interface UserProfile {
+  'id' : string,
+  'totalOrders' : bigint,
+  'createdAt' : bigint,
+  'role' : UserRole,
+  'invitedBy' : [] | [string],
+  'fullName' : string,
+  'email' : string,
+}
 export type UserRole = { 'salesRep' : null } |
   { 'admin' : null };
+export type UserRole__1 = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
 export interface _CaffeineStorageCreateCertificateResult {
   'method' : string,
   'blob_hash' : string,
@@ -94,7 +150,9 @@ export interface _SERVICE {
     _CaffeineStorageRefillResult
   >,
   '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'addContainerItem' : ActorMethod<[ContainerItem], undefined>,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole__1], undefined>,
   'createAdminUser' : ActorMethod<[string, string, string], undefined>,
   'createContainer' : ActorMethod<
     [string, string, string, string, string, string, string],
@@ -113,7 +171,10 @@ export interface _SERVICE {
     ],
     undefined
   >,
+  'deleteAppUser' : ActorMethod<[string], undefined>,
+  'deleteCategoryData' : ActorMethod<[string], undefined>,
   'deleteContainer' : ActorMethod<[string], undefined>,
+  'deleteProduct' : ActorMethod<[string], undefined>,
   'getAdminStats' : ActorMethod<
     [],
     {
@@ -126,8 +187,16 @@ export interface _SERVICE {
       'syncedOrders' : bigint,
     }
   >,
+  'getAllAppUsers' : ActorMethod<[], Array<AppUser>>,
+  'getAllCategoriesData' : ActorMethod<[], Array<Category>>,
   'getAllContainers' : ActorMethod<[], Array<Container>>,
+  'getAllCustomers' : ActorMethod<[], Array<Customer>>,
+  'getAllExtendedProductsData' : ActorMethod<[], Array<ExtendedProduct>>,
   'getAllOrders' : ActorMethod<[], Array<Order>>,
+  'getAllProducts' : ActorMethod<[], Array<Product>>,
+  'getAppUserByEmail' : ActorMethod<[string], [] | [AppUser]>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole__1>,
   'getContainer' : ActorMethod<[string], [] | [Container]>,
   'getContainerItems' : ActorMethod<[string], Array<ContainerItem>>,
   'getOrdersByUser' : ActorMethod<[string], Array<Order>>,
@@ -142,22 +211,30 @@ export interface _SERVICE {
       'customers' : bigint,
     }
   >,
+  'getUserProfile' : ActorMethod<[string], [] | [UserProfile]>,
   'getUserRole' : ActorMethod<[string], UserRole>,
   'incrementUserOrderCount' : ActorMethod<[string], undefined>,
   'inviteUser' : ActorMethod<
     [string, string, string, [] | [string]],
     undefined
   >,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
   'removeContainerItem' : ActorMethod<[string], undefined>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
   'seedData' : ActorMethod<[], undefined>,
   'submitOrder' : ActorMethod<[Order, Array<OrderItem>], undefined>,
   'syncOrder' : ActorMethod<[string], undefined>,
+  'updateAppUserPassword' : ActorMethod<[string, string], undefined>,
   'updateContainer' : ActorMethod<
     [string, string, string, string, string, string, string],
     undefined
   >,
   'updateContainerItem' : ActorMethod<[ContainerItem], undefined>,
   'updateProductImage' : ActorMethod<[string, ExternalBlob], undefined>,
+  'upsertAppUser' : ActorMethod<[AppUser], undefined>,
+  'upsertCategory' : ActorMethod<[Category], undefined>,
+  'upsertCustomer' : ActorMethod<[Customer], undefined>,
+  'upsertExtendedProduct' : ActorMethod<[ExtendedProduct], undefined>,
   'upsertProductBySku' : ActorMethod<[Product], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;

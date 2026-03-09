@@ -11,14 +11,18 @@ import {
 import { Search, SlidersHorizontal } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
+import type { Product } from "../backend.d";
 import { CustomerSelectorModal } from "../components/CustomerSelectorModal";
 import { FloatingCartButton } from "../components/FloatingCartButton";
 import { ProductCard } from "../components/ProductCard";
 import { ProductDetailModal } from "../components/ProductDetailModal";
+import { getBackendActor } from "../lib/backendService";
 import {
   getAllCategories,
   getAllExtendedProducts,
   getProductsFromCache,
+  saveAllExtendedProducts,
+  saveCategoriesToCache,
   saveProductsToCache,
 } from "../lib/db";
 import { SAMPLE_PRODUCTS } from "../lib/sampleData";
@@ -40,6 +44,9 @@ export function CatalogPage() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
+  const [stockFilter, setStockFilter] = useState<
+    "all" | "in_stock" | "out_of_stock"
+  >("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [categoryMap, setCategoryMap] = useState<
     Record<string, { catEn: string; catCn: string }>
@@ -48,26 +55,82 @@ export function CatalogPage() {
     null,
   );
 
-  // Load products — prefer extended_products (has BBD, stockStatus from bulk upload)
+  // Load products — sync from backend first, then fall back to IndexedDB/sample
   useEffect(() => {
     const loadProducts = async () => {
       setLoading(true);
       try {
-        const [extended, cached, allCategories] = await Promise.all([
+        const [extendedLocal, cached, allCategories] = await Promise.all([
           getAllExtendedProducts(),
           getProductsFromCache(),
           getAllCategories(),
         ]);
 
-        // Build category map: catId -> { catEn, catCn }
-        const map: Record<string, { catEn: string; catCn: string }> = {};
-        for (const c of allCategories) {
-          if (c.catId) map[c.catId] = { catEn: c.catEn, catCn: c.catCn };
-        }
-        setCategoryMap(map);
+        // Build category map from local cache first
+        const buildCategoryMap = (cats: typeof allCategories) => {
+          const map: Record<string, { catEn: string; catCn: string }> = {};
+          for (const c of cats) {
+            if (c.catId) map[c.catId] = { catEn: c.catEn, catCn: c.catCn };
+          }
+          return map;
+        };
+        setCategoryMap(buildCategoryMap(allCategories));
 
-        if (extended.length > 0) {
-          setProducts(extended);
+        // Try to sync from backend canister
+        let backendProducts: Product[] = [];
+        let backendExtended: import("../backend.d").ExtendedProduct[] = [];
+        try {
+          const actor = await getBackendActor();
+          [backendProducts, backendExtended] = await Promise.all([
+            actor.getAllProducts(),
+            actor.getAllExtendedProductsData(),
+          ]);
+          // Also refresh categories from backend
+          const backendCats = await actor.getAllCategoriesData();
+          if (backendCats.length > 0) {
+            await saveCategoriesToCache(backendCats);
+            setCategoryMap(buildCategoryMap(backendCats));
+          }
+        } catch {
+          // offline or error — use local only
+        }
+
+        if (backendProducts.length > 0) {
+          // Merge: backend is authoritative for base + extended fields, local for imageBlobUrl only
+          const localMap = new Map(extendedLocal.map((p) => [p.sku, p]));
+          const extMap = new Map(backendExtended.map((ep) => [ep.sku, ep]));
+
+          const merged: ExtendedProduct[] = backendProducts.map((bp) => {
+            const local = localMap.get(bp.sku);
+            const ext = extMap.get(bp.sku);
+            return {
+              id: bp.id,
+              sku: bp.sku,
+              nameCnSimplified: bp.nameCnSimplified,
+              nameCnTraditional: bp.nameCnTraditional,
+              category: bp.category,
+              price: bp.price,
+              stockStatus: bp.stockStatus,
+              imageBlobUrl: local?.imageBlobUrl ?? "",
+              createdAt: bp.createdAt,
+              updatedAt: bp.updatedAt,
+              // Extended fields: backend first, then local cache
+              categoryId: ext?.categoryId ?? local?.categoryId ?? "",
+              brand: ext?.brand ?? local?.brand ?? "",
+              nameEn: ext?.nameEn ?? local?.nameEn ?? "",
+              size: ext?.size ?? local?.size ?? "",
+              bbd: ext?.bbd ?? local?.bbd ?? "",
+              vat: ext?.vat ?? local?.vat ?? 0,
+              uom: ext?.uom ?? local?.uom ?? "",
+              stock: ext ? Number(ext.stock) : (local?.stock ?? 0),
+              promotions: ext?.promotions ?? local?.promotions ?? "",
+              imageFileName: ext?.imageFileName ?? local?.imageFileName ?? "",
+            };
+          });
+          await saveAllExtendedProducts(merged);
+          setProducts(merged);
+        } else if (extendedLocal.length > 0) {
+          setProducts(extendedLocal);
         } else if (cached.length > 0) {
           // Promote base products to ExtendedProduct shape
           const promoted: ExtendedProduct[] = cached.map((p) => ({
@@ -105,7 +168,7 @@ export function CatalogPage() {
     return cats;
   }, [products]);
 
-  // Filtered + sorted products (includes letter filter)
+  // Filtered + sorted products (includes letter filter and stock filter)
   const sortedFilteredProducts = useMemo(() => {
     return products
       .filter((p) => {
@@ -120,10 +183,15 @@ export function CatalogPage() {
           selectedCategory === "all" || p.category === selectedCategory;
         const matchLetter =
           !selectedLetter || p.sku.toUpperCase().startsWith(selectedLetter);
-        return matchSearch && matchCategory && matchLetter;
+        const matchStock =
+          stockFilter === "all" ||
+          (stockFilter === "in_stock" &&
+            (p.stockStatus === "in_stock" || p.stockStatus === "low_stock")) ||
+          (stockFilter === "out_of_stock" && p.stockStatus === "out_of_stock");
+        return matchSearch && matchCategory && matchLetter && matchStock;
       })
       .sort((a, b) => a.sku.toLowerCase().localeCompare(b.sku.toLowerCase()));
-  }, [products, search, selectedCategory, selectedLetter]);
+  }, [products, search, selectedCategory, selectedLetter, stockFilter]);
 
   // Pagination derived values
   const totalPages = Math.max(
@@ -235,6 +303,46 @@ export function CatalogPage() {
               {lang === "english"
                 ? (categoryMap[cat]?.catEn ?? cat)
                 : categoryMap[cat]?.catCn || categoryMap[cat]?.catEn || cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Stock Filter */}
+        <div className="flex gap-2">
+          {(
+            [
+              {
+                value: "all",
+                labelCn: "全部",
+                labelEn: "All",
+              },
+              {
+                value: "in_stock",
+                labelCn: "有貨",
+                labelEn: "In Stock",
+              },
+              {
+                value: "out_of_stock",
+                labelCn: "缺貨",
+                labelEn: "Out of Stock",
+              },
+            ] as const
+          ).map(({ value, labelCn, labelEn }) => (
+            <button
+              key={value}
+              type="button"
+              data-ocid="catalog.stock_filter.tab"
+              onClick={() => {
+                setStockFilter(value);
+                setCurrentPage(1);
+              }}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors touch-manipulation ${
+                stockFilter === value
+                  ? "bg-primary-600 text-white"
+                  : "bg-white border border-border text-muted-foreground hover:bg-secondary"
+              }`}
+            >
+              {lang === "english" ? labelEn : labelCn}
             </button>
           ))}
         </div>

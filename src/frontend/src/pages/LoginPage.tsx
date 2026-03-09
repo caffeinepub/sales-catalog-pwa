@@ -12,7 +12,11 @@ import { AlertCircle, Loader2, ShoppingBag } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getBackendActor } from "../lib/backendService";
-import { saveCustomersToCache, saveProductsToCache } from "../lib/db";
+import {
+  saveAppUsersToCache,
+  saveCustomersToCache,
+  saveProductsToCache,
+} from "../lib/db";
 import { SAMPLE_CUSTOMERS, SAMPLE_PRODUCTS } from "../lib/sampleData";
 import {
   ADMIN_USER,
@@ -20,25 +24,6 @@ import {
   setUserPassword,
   useAuthStore,
 } from "../stores/useAuthStore";
-
-// Read persisted users list created by UserManagement
-const USERS_STORE_KEY = "sales_catalog_users_list";
-interface StoredUser {
-  id: string;
-  email: string;
-  name: string;
-  role: "admin" | "sales_rep";
-}
-function findStoredUser(email: string): StoredUser | undefined {
-  try {
-    const raw = localStorage.getItem(USERS_STORE_KEY);
-    if (!raw) return undefined;
-    const list = JSON.parse(raw) as StoredUser[];
-    return list.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  } catch {
-    return undefined;
-  }
-}
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
 
@@ -58,6 +43,7 @@ export function LoginPage() {
     email: string;
     name: string;
     role: "admin" | "sales_rep";
+    canEditContainers?: boolean;
   } | null>(null);
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
@@ -75,84 +61,119 @@ export function LoginPage() {
             email: string;
             name: string;
             role: "admin" | "sales_rep";
+            canEditContainers?: boolean;
           }
         | undefined;
+      let mustChangePassword = false;
 
-      if (email === ADMIN_USER.email && password === ADMIN_USER.password) {
-        user = {
-          id: ADMIN_USER.id,
-          email: ADMIN_USER.email,
-          name: ADMIN_USER.name,
-          role: ADMIN_USER.role,
-        };
-      } else if (email && password) {
-        // Check per-user credentials
-        const cred = getUserCred(email);
-        if (cred) {
-          // Credentials exist — verify password
-          if (cred.password !== password) {
+      // ── Step 1: Try backend authentication ──────────────────────────────────
+      let backendAuthDone = false;
+      try {
+        const actor = await getBackendActor();
+
+        // Special-case: admin hardcoded fallback (backend may not have it yet)
+        if (email === ADMIN_USER.email && password === ADMIN_USER.password) {
+          user = {
+            id: ADMIN_USER.id,
+            email: ADMIN_USER.email,
+            name: ADMIN_USER.name,
+            role: ADMIN_USER.role,
+            canEditContainers: true,
+          };
+          backendAuthDone = true;
+        } else {
+          const backendUser = await actor.getAppUserByEmail(
+            email.toLowerCase().trim(),
+          );
+          if (backendUser) {
+            if (backendUser.passwordHash !== password) {
+              setError(t("loginError", lang));
+              setLoading(false);
+              return;
+            }
+            user = {
+              id: backendUser.id,
+              email: backendUser.email,
+              name: backendUser.fullName,
+              role: backendUser.role === "admin" ? "admin" : "sales_rep",
+              canEditContainers: backendUser.canEditContainers,
+            };
+            mustChangePassword = backendUser.mustChangePassword;
+            backendAuthDone = true;
+
+            // Cache the users list after successful login
+            try {
+              const allUsers = await actor.getAllAppUsers();
+              saveAppUsersToCache(allUsers);
+            } catch {
+              // Non-critical
+            }
+          }
+        }
+      } catch {
+        // Backend unavailable — fall through to localStorage fallback
+      }
+
+      // ── Step 2: Fallback to localStorage if backend unavailable ─────────────
+      if (!backendAuthDone) {
+        if (email === ADMIN_USER.email && password === ADMIN_USER.password) {
+          user = {
+            id: ADMIN_USER.id,
+            email: ADMIN_USER.email,
+            name: ADMIN_USER.name,
+            role: ADMIN_USER.role,
+            canEditContainers: true,
+          };
+        } else if (email && password) {
+          const cred = getUserCred(email);
+          if (cred && cred.password === password) {
+            mustChangePassword = cred.mustChange;
+            user = {
+              id: crypto.randomUUID(),
+              email,
+              name: email.split("@")[0] || "Sales Rep",
+              role: "sales_rep",
+            };
+          } else {
             setError(t("loginError", lang));
             setLoading(false);
             return;
           }
-          // Look up stored user record to get correct id/name/role
-          const stored = findStoredUser(email);
-          // Password correct — check if mustChange
-          user = {
-            id: stored?.id || crypto.randomUUID(),
-            email,
-            name: stored?.name || email.split("@")[0] || "Sales Rep",
-            role: (stored?.role as "admin" | "sales_rep") ?? "sales_rep",
-          };
-          if (cred.mustChange) {
-            // Seed data and cache before showing force-change dialog
-            try {
-              const backendActor = await getBackendActor();
-              await backendActor.seedData();
-            } catch {
-              // Idempotent
-            }
-            await Promise.all([
-              saveProductsToCache(SAMPLE_PRODUCTS),
-              saveCustomersToCache(SAMPLE_CUSTOMERS),
-            ]);
-            setPendingUser(user);
-            setNewPwd("");
-            setConfirmPwd("");
-            setPwdError("");
-            setShowForceChange(true);
-            setLoading(false);
-            return;
-          }
         } else {
-          // No credential entry — legacy / first-time flow, allow entry
-          const stored = findStoredUser(email);
-          user = {
-            id: stored?.id || crypto.randomUUID(),
-            email,
-            name: stored?.name || email.split("@")[0] || "Sales Rep",
-            role: (stored?.role as "admin" | "sales_rep") ?? "sales_rep",
-          };
+          setError(t("loginError", lang));
+          setLoading(false);
+          return;
         }
-      } else {
+      }
+
+      if (!user) {
         setError(t("loginError", lang));
         setLoading(false);
         return;
       }
 
-      // Seed data on login
+      // ── Step 3: Seed / cache data ────────────────────────────────────────────
       try {
         const backendActor = await getBackendActor();
         await backendActor.seedData();
       } catch {
         // Idempotent, ignore errors
       }
-
-      // Populate local cache with sample data for offline fallback
       await Promise.all([
         saveProductsToCache(SAMPLE_PRODUCTS),
         saveCustomersToCache(SAMPLE_CUSTOMERS),
       ]);
+
+      // ── Step 4: Force-change password if required ─────────────────────────
+      if (mustChangePassword) {
+        setPendingUser(user);
+        setNewPwd("");
+        setConfirmPwd("");
+        setPwdError("");
+        setShowForceChange(true);
+        setLoading(false);
+        return;
+      }
 
       login(user);
       navigate("/catalog");
@@ -163,7 +184,7 @@ export function LoginPage() {
     }
   };
 
-  const handleForceChangePassword = () => {
+  const handleForceChangePassword = async () => {
     setPwdError("");
     if (newPwd.length < 6) {
       setPwdError(t("passwordTooShort", lang));
@@ -174,7 +195,14 @@ export function LoginPage() {
       return;
     }
     if (!pendingUser) return;
-    // Save new password
+    // Save new password to backend
+    try {
+      const actor = await getBackendActor();
+      await actor.updateAppUserPassword(pendingUser.email, newPwd);
+    } catch {
+      // Backend unavailable — update localStorage only
+    }
+    // Always update localStorage fallback
     setUserPassword(pendingUser.email, newPwd, false);
     // Log them in
     login(pendingUser);

@@ -1,7 +1,12 @@
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
-import type { Order, OrderItem, Product } from "../backend.d";
 import type {
+  AppUser,
   Category,
+  Order,
+  OrderItem,
+  Product,
+} from "../backend.d";
+import type {
   Container,
   ContainerItem,
   Customer,
@@ -183,6 +188,41 @@ export async function getAllCategories(): Promise<Category[]> {
 export async function deleteCategory(id: string): Promise<void> {
   const db = await getDB();
   await db.delete("categories_cache", id);
+}
+
+/**
+ * Bulk-replace the categories cache with a fresh list from the backend.
+ * Clears the store first to remove stale entries.
+ */
+export async function saveCategoriesToCache(
+  categories: Category[],
+): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction("categories_cache", "readwrite");
+  await tx.store.clear();
+  await Promise.all([...categories.map((c) => tx.store.put(c)), tx.done]);
+}
+
+// ── App Users (localStorage cache for offline fallback) ─────────────────────
+
+const APP_USERS_CACHE_KEY = "sales_catalog_app_users_cache";
+
+export function saveAppUsersToCache(users: AppUser[]): void {
+  try {
+    localStorage.setItem(APP_USERS_CACHE_KEY, JSON.stringify(users));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getAppUsersFromCache(): AppUser[] {
+  try {
+    const raw = localStorage.getItem(APP_USERS_CACHE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as AppUser[];
+  } catch {
+    return [];
+  }
 }
 
 // Pending Orders

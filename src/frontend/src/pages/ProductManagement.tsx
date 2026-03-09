@@ -41,6 +41,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
+import type { Product } from "../backend.d";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { getBackendActor } from "../lib/backendService";
 import {
@@ -48,6 +49,7 @@ import {
   getAllExtendedProducts,
   getProductsFromCache,
   saveAllExtendedProducts,
+  saveCategoriesToCache,
   saveProductsToCache,
 } from "../lib/db";
 import { generateTemplate, parseProductsExcel } from "../lib/excel";
@@ -141,17 +143,69 @@ export function ProductManagement() {
   const loadProducts = async () => {
     setLoading(true);
     try {
-      // Load categories and products in parallel
-      const [extended, cats] = await Promise.all([
+      const [extendedLocal, cats] = await Promise.all([
         getAllExtendedProducts(),
         getAllCategories(),
       ]);
       setCategories(cats);
 
-      if (extended.length > 0) {
-        setProducts(extended);
+      // Try to sync from backend canister
+      let backendProducts: Product[] = [];
+      let backendExtended: import("../backend.d").ExtendedProduct[] = [];
+      try {
+        const actor = await getBackendActor();
+        [backendProducts, backendExtended] = await Promise.all([
+          actor.getAllProducts(),
+          actor.getAllExtendedProductsData(),
+        ]);
+        // Also refresh categories from backend
+        const backendCats = await actor.getAllCategoriesData();
+        if (backendCats.length > 0) {
+          await saveCategoriesToCache(backendCats);
+          setCategories(backendCats);
+        }
+      } catch {
+        // offline or error — use local only
+      }
+
+      if (backendProducts.length > 0) {
+        // Merge: backend is authoritative for base + extended fields, local for imageBlobUrl only
+        const localMap = new Map(extendedLocal.map((p) => [p.sku, p]));
+        const extMap = new Map(backendExtended.map((ep) => [ep.sku, ep]));
+
+        const merged: ExtendedProduct[] = backendProducts.map((bp) => {
+          const local = localMap.get(bp.sku);
+          const ext = extMap.get(bp.sku);
+          return {
+            id: bp.id,
+            sku: bp.sku,
+            nameCnSimplified: bp.nameCnSimplified,
+            nameCnTraditional: bp.nameCnTraditional,
+            category: bp.category,
+            price: bp.price,
+            stockStatus: bp.stockStatus,
+            imageBlobUrl: local?.imageBlobUrl ?? "",
+            createdAt: bp.createdAt,
+            updatedAt: bp.updatedAt,
+            // Extended fields: backend first, then local cache
+            categoryId: ext?.categoryId ?? local?.categoryId ?? "",
+            brand: ext?.brand ?? local?.brand ?? "",
+            nameEn: ext?.nameEn ?? local?.nameEn ?? "",
+            size: ext?.size ?? local?.size ?? "",
+            bbd: ext?.bbd ?? local?.bbd ?? "",
+            vat: ext?.vat ?? local?.vat ?? 0,
+            uom: ext?.uom ?? local?.uom ?? "",
+            stock: ext ? Number(ext.stock) : (local?.stock ?? 0),
+            promotions: ext?.promotions ?? local?.promotions ?? "",
+            imageFileName: ext?.imageFileName ?? local?.imageFileName ?? "",
+          };
+        });
+        await saveAllExtendedProducts(merged);
+        setProducts(merged);
+      } else if (extendedLocal.length > 0) {
+        setProducts(extendedLocal);
       } else {
-        // Fall back to base products_cache and promote to ExtendedProduct
+        // No backend data, no local data — use fallback from products_cache or sample
         const cached = await getProductsFromCache();
         if (cached.length > 0) {
           const promoted: ExtendedProduct[] = cached.map((p) => ({
@@ -366,7 +420,7 @@ export function ProductManagement() {
       if (isOnline) {
         try {
           const backendActor = await getBackendActor();
-          // Save base fields to backend (no imageBlob here — handled separately via updateProductImage)
+          // Save base fields to backend
           await backendActor.upsertProductBySku({
             id: product.id,
             sku: product.sku,
@@ -378,6 +432,21 @@ export function ProductManagement() {
             imageBlob: undefined,
             createdAt: product.createdAt,
             updatedAt: product.updatedAt,
+          });
+          // Save extended fields to backend
+          await backendActor.upsertExtendedProduct({
+            sku: product.sku,
+            nameEn: product.nameEn,
+            brand: product.brand,
+            categoryId: product.categoryId,
+            size: product.size,
+            bbd: product.bbd,
+            vat: product.vat,
+            uom: product.uom,
+            stock: BigInt(product.stock),
+            promotions: product.promotions,
+            imageFileName: product.imageFileName,
+            updatedAt: BigInt(Date.now()),
           });
         } catch {
           // Backend sync failed — continue with local save
@@ -427,13 +496,20 @@ export function ProductManagement() {
   };
 
   const handleDelete = async (product: ExtendedProduct) => {
+    // Remove from local state + IndexedDB immediately
     const updated = products.filter((p) => p.id !== product.id);
     await saveAllExtendedProducts(updated);
-
     const baseCached = await getProductsFromCache();
     await saveProductsToCache(baseCached.filter((p) => p.id !== product.id));
-
     setProducts(updated);
+
+    // Also delete from backend canister (best-effort)
+    try {
+      const backendActor = await getBackendActor();
+      await backendActor.deleteProduct(product.sku);
+    } catch {
+      // Backend delete failed silently — local delete still applied
+    }
     toast.success(t("delete", lang));
   };
 
@@ -602,6 +678,20 @@ export function ProductManagement() {
                 imageBlob: undefined,
                 createdAt: product.createdAt,
                 updatedAt: product.updatedAt,
+              });
+              await backendActor.upsertExtendedProduct({
+                sku: product.sku,
+                nameEn: product.nameEn,
+                brand: product.brand,
+                categoryId: product.categoryId,
+                size: product.size,
+                bbd: product.bbd,
+                vat: product.vat,
+                uom: product.uom,
+                stock: BigInt(product.stock),
+                promotions: product.promotions,
+                imageFileName: product.imageFileName,
+                updatedAt: BigInt(Date.now()),
               });
             } catch {
               // Backend sync failed — continue with local save

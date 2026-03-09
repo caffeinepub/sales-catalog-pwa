@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  AlertTriangle,
   ChevronDown,
   ClipboardList,
   Container,
@@ -30,8 +31,11 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { useSessionTimeout } from "../hooks/useSessionTimeout";
+import { getBackendActor } from "../lib/backendService";
+import { saveAppUsersToCache, saveCategoriesToCache } from "../lib/db";
 import { syncPendingOrders } from "../lib/sync";
 import {
+  ADMIN_USER,
   changeAdminPassword,
   changeUserPassword,
   useAuthStore,
@@ -60,6 +64,7 @@ export function AppLayout() {
   // Auto-sync when coming back online
   useEffect(() => {
     if (!prevOnlineRef.current && isOnline && currentUser) {
+      // Sync pending orders
       syncPendingOrders(currentUser.id)
         .then(({ synced }) => {
           if (synced > 0) {
@@ -71,32 +76,79 @@ export function AppLayout() {
         .catch(() => {
           // silent
         });
+
+      // Re-sync users, categories from backend on reconnect
+      (async () => {
+        try {
+          const actor = await getBackendActor();
+          const [backendUsers, backendCats] = await Promise.all([
+            actor.getAllAppUsers().catch(() => null),
+            actor.getAllCategoriesData().catch(() => null),
+          ]);
+          if (backendUsers) {
+            saveAppUsersToCache(backendUsers);
+          }
+          if (backendCats) {
+            await saveCategoriesToCache(backendCats);
+          }
+        } catch {
+          // silent — best effort
+        }
+      })();
     }
     prevOnlineRef.current = isOnline;
   }, [isOnline, currentUser, lang]);
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     setPwdError("");
+    if (!isOnline) {
+      setPwdError(
+        lang === "english"
+          ? "Cannot change password while offline"
+          : "離線時無法更改密碼",
+      );
+      return;
+    }
     if (newPwd !== confirmPwd) {
       setPwdError(t("passwordMismatch", lang));
       return;
     }
-    let result: string | null;
-    if (currentUser?.role === "admin") {
-      result = changeAdminPassword(oldPwd, newPwd);
-    } else if (currentUser?.email) {
-      result = changeUserPassword(currentUser.email, oldPwd, newPwd);
-    } else {
-      return;
-    }
-    if (result === "wrong") {
-      setPwdError(t("passwordWrong", lang));
-      return;
-    }
-    if (result === "short") {
+    if (newPwd.length < 6) {
       setPwdError(t("passwordTooShort", lang));
       return;
     }
+
+    // First verify current password locally
+    let verifyResult: string | null;
+    if (currentUser?.email === ADMIN_USER.email) {
+      verifyResult = changeAdminPassword(oldPwd, newPwd);
+    } else if (currentUser?.email) {
+      verifyResult = changeUserPassword(currentUser.email, oldPwd, newPwd);
+    } else {
+      return;
+    }
+    if (verifyResult === "wrong") {
+      setPwdError(t("passwordWrong", lang));
+      return;
+    }
+    if (verifyResult === "short") {
+      setPwdError(t("passwordTooShort", lang));
+      return;
+    }
+
+    // Sync new password to backend
+    try {
+      const actor = await getBackendActor();
+      await actor.updateAppUserPassword(currentUser!.email, newPwd);
+    } catch {
+      // Backend sync failed — localStorage already updated above
+    }
+
+    // Also update admin key in localStorage if applicable
+    if (currentUser?.email === ADMIN_USER.email) {
+      ADMIN_USER.password = newPwd;
+    }
+
     toast.success(t("passwordChanged", lang));
     setShowChangePassword(false);
     setOldPwd("");
@@ -247,8 +299,20 @@ export function AppLayout() {
         </div>
       </header>
 
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="fixed top-14 left-0 right-0 z-40 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <p className="text-xs font-medium text-amber-800">
+            {lang === "english"
+              ? "Offline — viewing cached data. Changes cannot be saved."
+              : "離線 — 顯示緩存數據。無法儲存更改。"}
+          </p>
+        </div>
+      )}
+
       {/* Main Content */}
-      <main className="flex-1 pt-14 pb-16">
+      <main className={`flex-1 pb-16 ${isOnline ? "pt-14" : "pt-[84px]"}`}>
         <Outlet />
       </main>
 

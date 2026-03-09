@@ -29,6 +29,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { getBackendActor } from "../lib/backendService";
 import { getCustomersFromCache, saveCustomersToCache } from "../lib/db";
 import { generateCustomerTemplate, parseCustomersExcel } from "../lib/excel";
 import { SAMPLE_CUSTOMERS } from "../lib/sampleData";
@@ -77,10 +78,32 @@ export function CustomerManagement() {
   const loadCustomers = async () => {
     setLoading(true);
     try {
-      const cached = await getCustomersFromCache();
-      setCustomers(cached.length > 0 ? cached : SAMPLE_CUSTOMERS);
-      if (cached.length === 0) {
-        await saveCustomersToCache(SAMPLE_CUSTOMERS);
+      let backendCustomers: Customer[] = [];
+      try {
+        const actor = await getBackendActor();
+        const raw = await actor.getAllCustomers();
+        backendCustomers = raw.map((c) => ({
+          id: c.id,
+          name: c.name,
+          contactPerson: c.contactPerson,
+          phone: c.phone,
+          email: c.email,
+          address: c.address,
+          createdAt: c.createdAt,
+        }));
+      } catch {
+        // offline or error
+      }
+
+      if (backendCustomers.length > 0) {
+        await saveCustomersToCache(backendCustomers);
+        setCustomers(backendCustomers);
+      } else {
+        const cached = await getCustomersFromCache();
+        setCustomers(cached.length > 0 ? cached : SAMPLE_CUSTOMERS);
+        if (cached.length === 0) {
+          await saveCustomersToCache(SAMPLE_CUSTOMERS);
+        }
       }
     } catch {
       setCustomers(SAMPLE_CUSTOMERS);
@@ -135,6 +158,15 @@ export function CustomerManagement() {
           : [...existing, customer];
       await saveCustomersToCache(updated);
       setCustomers(updated);
+
+      // Best-effort sync to backend canister
+      try {
+        const actor = await getBackendActor();
+        await actor.upsertCustomer(customer);
+      } catch {
+        // Backend sync failed silently — local save still applied
+      }
+
       setShowModal(false);
       toast.success(t("save", lang));
     } catch {

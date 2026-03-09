@@ -29,11 +29,17 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { deleteCategory, getAllCategories, saveCategory } from "../lib/db";
+import type { Category } from "../backend.d";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { getBackendActor } from "../lib/backendService";
+import {
+  getAllCategories,
+  saveCategoriesToCache,
+  saveCategory,
+} from "../lib/db";
 import { generateCategoryTemplate, parseCategoriesExcel } from "../lib/excel";
 import { useLanguageStore } from "../stores/useLanguageStore";
 import { t } from "../translations";
-import type { Category } from "../types";
 
 interface CategoryForm {
   catId: string;
@@ -52,6 +58,7 @@ const emptyForm: CategoryForm = {
 export function CategoryManagement() {
   const navigate = useNavigate();
   const { lang } = useLanguageStore();
+  const isOnline = useOnlineStatus();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -75,6 +82,19 @@ export function CategoryManagement() {
   const loadCategories = async () => {
     setLoading(true);
     try {
+      if (isOnline) {
+        // Online: fetch from backend and refresh cache
+        try {
+          const actor = await getBackendActor();
+          const backendCats = await actor.getAllCategoriesData();
+          await saveCategoriesToCache(backendCats);
+          setCategories(backendCats);
+          return;
+        } catch {
+          // Fall through to cache
+        }
+      }
+      // Offline or backend error: use IndexedDB cache
       const cached = await getAllCategories();
       setCategories(cached);
     } catch {
@@ -108,6 +128,14 @@ export function CategoryManagement() {
 
   const handleSave = async () => {
     if (!form.catId || !form.catEn) return;
+    if (!isOnline) {
+      toast.error(
+        lang === "english"
+          ? "Cannot make changes while offline"
+          : "離線時無法儲存更改",
+      );
+      return;
+    }
     setSaving(true);
     try {
       const now = BigInt(Date.now());
@@ -121,6 +149,9 @@ export function CategoryManagement() {
         updatedAt: now,
       };
 
+      // Save to backend first; only update cache on success
+      const actor = await getBackendActor();
+      await actor.upsertCategory(category);
       await saveCategory(category);
 
       // Reload from DB for consistency
@@ -136,9 +167,24 @@ export function CategoryManagement() {
   };
 
   const handleDelete = async (category: Category) => {
+    if (!isOnline) {
+      toast.error(
+        lang === "english"
+          ? "Cannot make changes while offline"
+          : "離線時無法儲存更改",
+      );
+      setDeleteConfirmId(null);
+      return;
+    }
     try {
-      await deleteCategory(category.id);
-      const updated = await getAllCategories();
+      // Delete from backend first
+      const actor = await getBackendActor();
+      await actor.deleteCategoryData(category.catId);
+      // Then remove from local cache
+      const updated = (await getAllCategories()).filter(
+        (c) => c.id !== category.id,
+      );
+      await saveCategoriesToCache(updated);
       setCategories(updated);
       toast.success(t("delete", lang));
     } catch {
@@ -150,6 +196,14 @@ export function CategoryManagement() {
 
   const handleBulkUpload = async () => {
     if (!uploadFile) return;
+    if (!isOnline) {
+      toast.error(
+        lang === "english"
+          ? "Cannot make changes while offline"
+          : "離線時無法儲存更改",
+      );
+      return;
+    }
     setUploading(true);
     setUploadResults(null);
     setUploadProgress(0);
@@ -160,6 +214,7 @@ export function CategoryManagement() {
       let updated = 0;
       let errors = 0;
       const existing = await getAllCategories();
+      const actor = await getBackendActor();
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -179,6 +234,8 @@ export function CategoryManagement() {
             createdAt: existingCat?.createdAt ?? now,
             updatedAt: now,
           };
+          // Save to backend first
+          await actor.upsertCategory(category);
           await saveCategory(category);
           if (existingCat) {
             updated++;

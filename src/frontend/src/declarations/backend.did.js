@@ -28,7 +28,33 @@ export const ContainerItem = IDL.Record({
   'sellingPrice' : IDL.Float64,
   'productName' : IDL.Text,
 });
+export const UserRole__1 = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
 export const ExternalBlob = IDL.Vec(IDL.Nat8);
+export const AppUser = IDL.Record({
+  'id' : IDL.Text,
+  'totalOrders' : IDL.Nat,
+  'joinDate' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'role' : IDL.Text,
+  'fullName' : IDL.Text,
+  'email' : IDL.Text,
+  'passwordHash' : IDL.Text,
+  'canEditContainers' : IDL.Bool,
+  'mustChangePassword' : IDL.Bool,
+});
+export const Category = IDL.Record({
+  'id' : IDL.Text,
+  'catCn' : IDL.Text,
+  'catEn' : IDL.Text,
+  'catId' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'updatedAt' : IDL.Int,
+  'subCat' : IDL.Text,
+});
 export const Container = IDL.Record({
   'id' : IDL.Text,
   'eta' : IDL.Text,
@@ -39,6 +65,29 @@ export const Container = IDL.Record({
   'createdAt' : IDL.Int,
   'updatedAt' : IDL.Int,
   'notes' : IDL.Text,
+});
+export const Customer = IDL.Record({
+  'id' : IDL.Text,
+  'name' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'contactPerson' : IDL.Text,
+  'email' : IDL.Text,
+  'address' : IDL.Text,
+  'phone' : IDL.Text,
+});
+export const ExtendedProduct = IDL.Record({
+  'bbd' : IDL.Text,
+  'sku' : IDL.Text,
+  'uom' : IDL.Text,
+  'vat' : IDL.Float64,
+  'categoryId' : IDL.Text,
+  'promotions' : IDL.Text,
+  'nameEn' : IDL.Text,
+  'imageFileName' : IDL.Text,
+  'size' : IDL.Text,
+  'updatedAt' : IDL.Int,
+  'stock' : IDL.Nat,
+  'brand' : IDL.Text,
 });
 export const Order = IDL.Record({
   'id' : IDL.Text,
@@ -67,6 +116,15 @@ export const Product = IDL.Record({
 export const UserRole = IDL.Variant({
   'salesRep' : IDL.Null,
   'admin' : IDL.Null,
+});
+export const UserProfile = IDL.Record({
+  'id' : IDL.Text,
+  'totalOrders' : IDL.Nat,
+  'createdAt' : IDL.Int,
+  'role' : UserRole,
+  'invitedBy' : IDL.Opt(IDL.Text),
+  'fullName' : IDL.Text,
+  'email' : IDL.Text,
 });
 export const OrderItem = IDL.Record({
   'id' : IDL.Text,
@@ -106,7 +164,9 @@ export const idlService = IDL.Service({
       [],
     ),
   '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'addContainerItem' : IDL.Func([ContainerItem], [], []),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole__1], [], []),
   'createAdminUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
   'createContainer' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
@@ -127,7 +187,10 @@ export const idlService = IDL.Service({
       [],
       [],
     ),
+  'deleteAppUser' : IDL.Func([IDL.Text], [], []),
+  'deleteCategoryData' : IDL.Func([IDL.Text], [], []),
   'deleteContainer' : IDL.Func([IDL.Text], [], []),
+  'deleteProduct' : IDL.Func([IDL.Text], [], []),
   'getAdminStats' : IDL.Func(
       [],
       [
@@ -143,8 +206,20 @@ export const idlService = IDL.Service({
       ],
       ['query'],
     ),
+  'getAllAppUsers' : IDL.Func([], [IDL.Vec(AppUser)], []),
+  'getAllCategoriesData' : IDL.Func([], [IDL.Vec(Category)], ['query']),
   'getAllContainers' : IDL.Func([], [IDL.Vec(Container)], ['query']),
+  'getAllCustomers' : IDL.Func([], [IDL.Vec(Customer)], ['query']),
+  'getAllExtendedProductsData' : IDL.Func(
+      [],
+      [IDL.Vec(ExtendedProduct)],
+      ['query'],
+    ),
   'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
+  'getAllProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
+  'getAppUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(AppUser)], ['query']),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerUserRole' : IDL.Func([], [UserRole__1], ['query']),
   'getContainer' : IDL.Func([IDL.Text], [IDL.Opt(Container)], ['query']),
   'getContainerItems' : IDL.Func(
       [IDL.Text],
@@ -166,6 +241,7 @@ export const idlService = IDL.Service({
       ],
       ['query'],
     ),
+  'getUserProfile' : IDL.Func([IDL.Text], [IDL.Opt(UserProfile)], ['query']),
   'getUserRole' : IDL.Func([IDL.Text], [UserRole], ['query']),
   'incrementUserOrderCount' : IDL.Func([IDL.Text], [], []),
   'inviteUser' : IDL.Func(
@@ -173,10 +249,13 @@ export const idlService = IDL.Service({
       [],
       [],
     ),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'removeContainerItem' : IDL.Func([IDL.Text], [], []),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
   'seedData' : IDL.Func([], [], []),
   'submitOrder' : IDL.Func([Order, IDL.Vec(OrderItem)], [], []),
   'syncOrder' : IDL.Func([IDL.Text], [], []),
+  'updateAppUserPassword' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updateContainer' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
       [],
@@ -184,6 +263,10 @@ export const idlService = IDL.Service({
     ),
   'updateContainerItem' : IDL.Func([ContainerItem], [], []),
   'updateProductImage' : IDL.Func([IDL.Text, ExternalBlob], [], []),
+  'upsertAppUser' : IDL.Func([AppUser], [], []),
+  'upsertCategory' : IDL.Func([Category], [], []),
+  'upsertCustomer' : IDL.Func([Customer], [], []),
+  'upsertExtendedProduct' : IDL.Func([ExtendedProduct], [], []),
   'upsertProductBySku' : IDL.Func([Product], [], []),
 });
 
@@ -210,7 +293,33 @@ export const idlFactory = ({ IDL }) => {
     'sellingPrice' : IDL.Float64,
     'productName' : IDL.Text,
   });
+  const UserRole__1 = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
   const ExternalBlob = IDL.Vec(IDL.Nat8);
+  const AppUser = IDL.Record({
+    'id' : IDL.Text,
+    'totalOrders' : IDL.Nat,
+    'joinDate' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'role' : IDL.Text,
+    'fullName' : IDL.Text,
+    'email' : IDL.Text,
+    'passwordHash' : IDL.Text,
+    'canEditContainers' : IDL.Bool,
+    'mustChangePassword' : IDL.Bool,
+  });
+  const Category = IDL.Record({
+    'id' : IDL.Text,
+    'catCn' : IDL.Text,
+    'catEn' : IDL.Text,
+    'catId' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'updatedAt' : IDL.Int,
+    'subCat' : IDL.Text,
+  });
   const Container = IDL.Record({
     'id' : IDL.Text,
     'eta' : IDL.Text,
@@ -221,6 +330,29 @@ export const idlFactory = ({ IDL }) => {
     'createdAt' : IDL.Int,
     'updatedAt' : IDL.Int,
     'notes' : IDL.Text,
+  });
+  const Customer = IDL.Record({
+    'id' : IDL.Text,
+    'name' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'contactPerson' : IDL.Text,
+    'email' : IDL.Text,
+    'address' : IDL.Text,
+    'phone' : IDL.Text,
+  });
+  const ExtendedProduct = IDL.Record({
+    'bbd' : IDL.Text,
+    'sku' : IDL.Text,
+    'uom' : IDL.Text,
+    'vat' : IDL.Float64,
+    'categoryId' : IDL.Text,
+    'promotions' : IDL.Text,
+    'nameEn' : IDL.Text,
+    'imageFileName' : IDL.Text,
+    'size' : IDL.Text,
+    'updatedAt' : IDL.Int,
+    'stock' : IDL.Nat,
+    'brand' : IDL.Text,
   });
   const Order = IDL.Record({
     'id' : IDL.Text,
@@ -247,6 +379,15 @@ export const idlFactory = ({ IDL }) => {
     'nameCnTraditional' : IDL.Text,
   });
   const UserRole = IDL.Variant({ 'salesRep' : IDL.Null, 'admin' : IDL.Null });
+  const UserProfile = IDL.Record({
+    'id' : IDL.Text,
+    'totalOrders' : IDL.Nat,
+    'createdAt' : IDL.Int,
+    'role' : UserRole,
+    'invitedBy' : IDL.Opt(IDL.Text),
+    'fullName' : IDL.Text,
+    'email' : IDL.Text,
+  });
   const OrderItem = IDL.Record({
     'id' : IDL.Text,
     'sku' : IDL.Text,
@@ -285,7 +426,9 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     '_caffeineStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'addContainerItem' : IDL.Func([ContainerItem], [], []),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole__1], [], []),
     'createAdminUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
     'createContainer' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
@@ -306,7 +449,10 @@ export const idlFactory = ({ IDL }) => {
         [],
         [],
       ),
+    'deleteAppUser' : IDL.Func([IDL.Text], [], []),
+    'deleteCategoryData' : IDL.Func([IDL.Text], [], []),
     'deleteContainer' : IDL.Func([IDL.Text], [], []),
+    'deleteProduct' : IDL.Func([IDL.Text], [], []),
     'getAdminStats' : IDL.Func(
         [],
         [
@@ -322,8 +468,20 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'getAllAppUsers' : IDL.Func([], [IDL.Vec(AppUser)], []),
+    'getAllCategoriesData' : IDL.Func([], [IDL.Vec(Category)], ['query']),
     'getAllContainers' : IDL.Func([], [IDL.Vec(Container)], ['query']),
+    'getAllCustomers' : IDL.Func([], [IDL.Vec(Customer)], ['query']),
+    'getAllExtendedProductsData' : IDL.Func(
+        [],
+        [IDL.Vec(ExtendedProduct)],
+        ['query'],
+      ),
     'getAllOrders' : IDL.Func([], [IDL.Vec(Order)], ['query']),
+    'getAllProducts' : IDL.Func([], [IDL.Vec(Product)], ['query']),
+    'getAppUserByEmail' : IDL.Func([IDL.Text], [IDL.Opt(AppUser)], ['query']),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole__1], ['query']),
     'getContainer' : IDL.Func([IDL.Text], [IDL.Opt(Container)], ['query']),
     'getContainerItems' : IDL.Func(
         [IDL.Text],
@@ -349,6 +507,7 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'getUserProfile' : IDL.Func([IDL.Text], [IDL.Opt(UserProfile)], ['query']),
     'getUserRole' : IDL.Func([IDL.Text], [UserRole], ['query']),
     'incrementUserOrderCount' : IDL.Func([IDL.Text], [], []),
     'inviteUser' : IDL.Func(
@@ -356,10 +515,13 @@ export const idlFactory = ({ IDL }) => {
         [],
         [],
       ),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'removeContainerItem' : IDL.Func([IDL.Text], [], []),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
     'seedData' : IDL.Func([], [], []),
     'submitOrder' : IDL.Func([Order, IDL.Vec(OrderItem)], [], []),
     'syncOrder' : IDL.Func([IDL.Text], [], []),
+    'updateAppUserPassword' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateContainer' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text],
         [],
@@ -367,6 +529,10 @@ export const idlFactory = ({ IDL }) => {
       ),
     'updateContainerItem' : IDL.Func([ContainerItem], [], []),
     'updateProductImage' : IDL.Func([IDL.Text, ExternalBlob], [], []),
+    'upsertAppUser' : IDL.Func([AppUser], [], []),
+    'upsertCategory' : IDL.Func([Category], [], []),
+    'upsertCustomer' : IDL.Func([Customer], [], []),
+    'upsertExtendedProduct' : IDL.Func([ExtendedProduct], [], []),
     'upsertProductBySku' : IDL.Func([Product], [], []),
   });
 };

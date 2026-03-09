@@ -1,6 +1,10 @@
 // Local types not exported from backend.d.ts
 import type { Product } from "./backend.d";
 
+// Re-export Category from backend.d — it is the canonical type now.
+// The local Category definition has been superseded by the backend version.
+export type { Category } from "./backend.d";
+
 export interface Customer {
   id: string;
   name: string;
@@ -11,7 +15,8 @@ export interface Customer {
   createdAt: bigint;
 }
 
-// Extended product with additional frontend-only fields stored in IndexedDB
+// Frontend ExtendedProduct: combines base Product fields + backend ExtendedProduct extended fields.
+// imageBlobUrl is local-only and never sent to backend.
 export interface ExtendedProduct extends Product {
   categoryId: string;
   brand: string;
@@ -23,18 +28,7 @@ export interface ExtendedProduct extends Product {
   stock: number;
   promotions: string;
   imageFileName: string; // filename to match against uploaded image folder (e.g. "product-001.jpg")
-  imageBlobUrl?: string; // resolved blob URL for display after image is uploaded
-}
-
-// Category entity stored in IndexedDB
-export interface Category {
-  id: string;
-  catId: string;
-  catEn: string;
-  catCn: string;
-  subCat: string;
-  createdAt: bigint;
-  updatedAt: bigint;
+  imageBlobUrl?: string; // resolved blob URL for display — local only, not sent to backend
 }
 
 // Container entity stored in IndexedDB
