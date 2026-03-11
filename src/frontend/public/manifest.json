@@ -5,17 +5,17 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#2563eb",
+  "theme_color": "#cc0000",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/assets/generated/app-icon-transparent.dim_512x512.png",
+      "src": "/assets/uploads/LOGO-1.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/assets/generated/app-icon-transparent.dim_512x512.png",
+      "src": "/assets/uploads/LOGO-1.png",
       "sizes": "192x192",
       "type": "image/png"
     }

@@ -211,13 +211,17 @@ export function AppLayout() {
       {/* Top Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-border shadow-xs">
         <div className="flex items-center justify-between px-4 h-14">
-          {/* App Name */}
+          {/* App Logo */}
           <button
             type="button"
             onClick={() => navigate("/catalog")}
-            className="font-display font-bold text-lg text-primary-600 tracking-tight"
+            className="flex items-center"
           >
-            {t("appName", lang)}
+            <img
+              src="/assets/uploads/LOGO-1.png"
+              alt="App Logo"
+              className="h-9 w-auto object-contain"
+            />
           </button>
 
           {/* Right Controls */}

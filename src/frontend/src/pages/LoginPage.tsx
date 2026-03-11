@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, Loader2, ShoppingBag } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getBackendActor } from "../lib/backendService";
@@ -227,9 +227,11 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-primary-600 flex items-center justify-center mb-4 shadow-float">
-            <ShoppingBag className="w-8 h-8 text-white" />
-          </div>
+          <img
+            src="/assets/uploads/LOGO-1.png"
+            alt="App Logo"
+            className="w-20 h-20 object-contain mb-4"
+          />
           <h1 className="font-display text-2xl font-bold text-foreground">
             {t("appName", lang)}
           </h1>
